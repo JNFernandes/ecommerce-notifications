@@ -231,7 +231,7 @@ reads work with the broker paused.
   - `tests/component/test_kafka_outage.py` (the notifications recorded after each outage)
 
   Gate.
-- [ ] T011 [P] Update `README.md`:
+- [X] T011 [P] Update `README.md`:
   - status line;
   - the HTTP API table: both endpoints available, with parameters, responses and examples from
     `contracts/http-api.md`;
