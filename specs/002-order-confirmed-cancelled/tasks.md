@@ -181,7 +181,7 @@ message `Your order <orderId> was confirmed.` and one send log line; no order co
   the app's routing table built from default settings has exactly the topics
   `orders.order-placed` and `orders.order-confirmed`. Expose a small `build_routing_table(...)`
   function in `main.py` so it can be tested without starting the app. Gate.
-- [ ] T012 [US1] Component test in `tests/component/test_order_status_flow.py`:
+- [X] T012 [US1] Component test in `tests/component/test_order_status_flow.py`:
   - a fixture creates the three order topics (T001 helper) and runs the app (`run_app`,
     `component_settings`);
   - produce one confirmation, then `eventually` exactly one `ORDER_CONFIRMED` document with the
