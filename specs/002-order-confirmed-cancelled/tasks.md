@@ -319,7 +319,7 @@ processed; one consumer for all three topics.
   `tests/component/test_order_status_flow.py` so every recorded notification is also read back
   through `GET /notifications/{id}` (constitution VII, "readable over HTTP"). Until then,
   component tests assert on MongoDB. Gate.
-- [ ] T026 Run quickstart.md steps 2–5 against ecommerce-infra (the service via `uv run` with
+- [X] T026 Run quickstart.md steps 2–5 against ecommerce-infra (the service via `uv run` with
   `MONGODB_URI` on `127.0.0.2`, or the Docker image on `ecommerce_default`). Use a throwaway
   database and consumer group, and clean them up afterwards. Record any deviation as a fix
   before the PR. Gate.
