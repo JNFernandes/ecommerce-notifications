@@ -314,7 +314,7 @@ processed; one consumer for all three topics.
 
   Do not change the payload. Gate (this repository's gate is unaffected; run it anyway for the
   rule).
-- [ ] T025 Record the Principle VII follow-up (plan.md Complexity Tracking) in `CLAUDE.md`,
+- [X] T025 Record the Principle VII follow-up (plan.md Complexity Tracking) in `CLAUDE.md`,
   under "Tests": US-04 MUST extend `tests/component/test_order_placed_flow.py` and
   `tests/component/test_order_status_flow.py` so every recorded notification is also read back
   through `GET /notifications/{id}` (constitution VII, "readable over HTTP"). Until then,
