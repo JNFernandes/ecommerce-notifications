@@ -239,7 +239,7 @@ the message; the offset committed; no notification.
 with `attempts` 1, and the next refund is processed; one app instance handles all four topics for
 one order.
 
-- [ ] T013 [P] [US3] Integration test in `tests/integration/test_notification_repository.py`: a
+- [X] T013 [P] [US3] Integration test in `tests/integration/test_notification_repository.py`: a
   `Notification.payment_refunded` added twice with the same `source_event_id` → `True` then
   `False`, one document (after `ensure_indexes`); round trip `from_document(to_document(n)) ==
   n`. Gate.

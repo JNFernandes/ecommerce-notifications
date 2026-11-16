@@ -141,3 +141,42 @@ async def test_should_read_back_an_equal_status_notification(
     assert document is not None
     assert document["type"] == notification.type.value
     assert from_document(document) == notification
+
+
+def _refund_notification(source_event_id: UUID) -> Notification:
+    return Notification.payment_refunded(
+        notification_id=uuid4(),
+        customer_id=uuid4(),
+        order_id=uuid4(),
+        amount=Decimal("129.90"),
+        currency="EUR",
+        source_event_id=source_event_id,
+        now=datetime(2026, 11, 16, 10, 5, tzinfo=UTC),
+    )
+
+
+async def test_should_keep_one_refund_notification_when_its_event_is_redelivered(
+    database: AsyncDatabase[Document],
+) -> None:
+    await ensure_indexes(database)
+    repository = MongoNotificationRepository(database)
+    event_id = uuid4()
+
+    first = await repository.add(_refund_notification(event_id))
+    again = await repository.add(_refund_notification(event_id))
+
+    assert (first, again) == (True, False)
+    assert await database["notifications"].count_documents({"sourceEventId": str(event_id)}) == 1
+
+
+async def test_should_read_back_an_equal_refund_notification(
+    database: AsyncDatabase[Document],
+) -> None:
+    notification = _refund_notification(uuid4())
+    await MongoNotificationRepository(database).add(notification)
+
+    document = await database["notifications"].find_one({"_id": str(notification.id)})
+
+    assert document is not None
+    assert document["type"] == "PAYMENT_REFUNDED"
+    assert from_document(document) == notification
