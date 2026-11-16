@@ -6,7 +6,8 @@ from contextlib import AbstractAsyncContextManager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from notifications.api import health
+from notifications.api import health, notifications
+from notifications.api.errors import register_error_handlers
 
 type Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]]
 
@@ -31,4 +32,6 @@ def build_api(cors_allowed_origins: Sequence[str], lifespan: Lifespan | None = N
             allow_headers=["*"],
         )
     app.include_router(health.router)
+    app.include_router(notifications.router)
+    register_error_handlers(app)
     return app

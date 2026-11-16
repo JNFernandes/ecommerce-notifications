@@ -109,7 +109,7 @@ documented, CORS, works without Kafka. They are inside the single backlog item U
 **Independent Test**: With a fake service, the API answers the documented page shape; with
 filters, the service receives them.
 
-- [ ] T004 [US1] Router, response models, wiring (depends on T001, T003):
+- [X] T004 [US1] Router, response models, wiring (depends on T001, T003):
   - create `src/notifications/api/notifications.py` with:
     - `NotificationResponse` (frozen; camelCase aliases; a description on every field;
       `from_domain(notification)`);

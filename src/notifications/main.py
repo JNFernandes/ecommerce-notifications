@@ -12,6 +12,7 @@ from fastapi import FastAPI
 
 from notifications.api.app import build_api
 from notifications.application.health import HealthService
+from notifications.application.query_notifications import NotificationQueryService
 from notifications.application.record_order_received import RecordOrderReceivedService
 from notifications.application.record_order_status import RecordOrderStatusService
 from notifications.application.record_payment_refunded import RecordPaymentRefundedService
@@ -130,6 +131,7 @@ def create_app(
             await ensure_indexes(database)
             consumers.start()
             app.state.health_service = HealthService(MongoDatabaseProbe(client), consumers)
+            app.state.notification_query_service = NotificationQueryService(notifications)
             logger.info("ecommerce-notifications started")
             yield
         finally:
