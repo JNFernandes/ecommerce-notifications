@@ -269,7 +269,7 @@ processed; one consumer for all three topics.
   - for a confirmed and a cancelled notification, `add` twice with the same `source_event_id` →
     `True` then `False`, one document each (unique index, after `ensure_indexes`);
   - `from_document(to_document(n)) == n` for both new types. Gate.
-- [ ] T019 [P] [US3] Component test in `tests/component/test_order_status_flow.py`: produce the
+- [X] T019 [P] [US3] Component test in `tests/component/test_order_status_flow.py`: produce the
   same confirmation bytes twice (same key); `eventually` the group's committed offset passes the
   second delivery (`committed_offset`); exactly one notification; one send log record; no dead
   letter at those offsets. Gate.

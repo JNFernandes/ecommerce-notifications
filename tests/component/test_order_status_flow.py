@@ -12,7 +12,7 @@ from tests.support.events import (
     order_status_payload,
     to_json_bytes,
 )
-from tests.support.kafka import create_order_topics, produce
+from tests.support.kafka import committed_offset, create_order_topics, produce
 from tests.support.polling import eventually
 
 pytestmark = pytest.mark.component
@@ -86,3 +86,38 @@ async def test_should_record_order_cancelled_notifications_with_and_without_a_re
     assert first["customerId"] == with_reason["customerId"]
     assert len(_send_lines(caplog, first["_id"])) == 1
     assert len(_send_lines(caplog, second["_id"])) == 1
+
+
+async def test_should_record_one_notification_when_a_confirmation_is_delivered_twice(
+    app: RunningApp, kafka_bootstrap: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="notifications.send")
+    payload = order_status_payload()
+    value, key = to_json_bytes(payload), str(payload["aggregateId"]).encode()
+
+    _, first_offset = await produce(kafka_bootstrap, ORDER_CONFIRMED_TOPIC, value, key=key)
+    partition, second_offset = await produce(kafka_bootstrap, ORDER_CONFIRMED_TOPIC, value, key=key)
+
+    await eventually(
+        lambda: committed_offset(
+            kafka_bootstrap, app.settings.kafka_group_id, ORDER_CONFIRMED_TOPIC, partition
+        ),
+        lambda committed: committed == second_offset + 1,
+        description="both deliveries committed",
+    )
+    notifications = (
+        await app.database["notifications"].find({"sourceEventId": payload["eventId"]}).to_list()
+    )
+    assert len(notifications) == 1
+    assert len(_send_lines(caplog, notifications[0]["_id"])) == 1
+    # The topic is shared by all component tests: only this test's offsets are relevant.
+    assert (
+        await app.database["inbound_dead_letters"].count_documents(
+            {
+                "topic": ORDER_CONFIRMED_TOPIC,
+                "partition": partition,
+                "offset": {"$in": [first_offset, second_offset]},
+            }
+        )
+        == 0
+    )
