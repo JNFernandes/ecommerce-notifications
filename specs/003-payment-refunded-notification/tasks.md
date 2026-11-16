@@ -243,7 +243,7 @@ one order.
   `Notification.payment_refunded` added twice with the same `source_event_id` → `True` then
   `False`, one document (after `ensure_indexes`); round trip `from_document(to_document(n)) ==
   n`. Gate.
-- [ ] T014 [US3] Component tests in `tests/component/test_payment_refunded_flow.py`:
+- [X] T014 [US3] Component tests in `tests/component/test_payment_refunded_flow.py`:
   1. **Redelivery**: placement → wait for the context → the same refund bytes twice (same key) →
      `eventually` both offsets committed → one notification, one send log record, no dead letter
      at those offsets.
