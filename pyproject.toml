@@ -1,0 +1,94 @@
+[project]
+name = "ecommerce-notifications"
+version = "0.1.0"
+description = "Records customer notifications for order events in the ecommerce system."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "aiokafka>=0.15.0",
+    "fastapi>=0.163.1",
+    "pydantic>=2.14.3",
+    "pydantic-settings>=2.16.3",
+    "pymongo>=4.20.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "notifications"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.5",
+    "testcontainers[kafka,mongodb]>=4.15.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+include = ["src/**/*.py", "tests/**/*.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ANN", "S", "C4", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# assert is the pytest assertion mechanism.
+"tests/**/*.py" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["notifications"]
+
+[tool.ruff.format]
+quote-style = "double"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+mypy_path = "src"
+plugins = ["pydantic.mypy"]
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+
+# Justification (Principle V): aiokafka ships neither type hints nor a py.typed marker, and no
+# stub package exists. Its names are typed as Any only at the import boundary in
+# notifications.messaging; everything the service builds on top of them is fully typed.
+[[tool.mypy.overrides]]
+module = ["aiokafka", "aiokafka.*"]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+addopts = ["--strict-markers", "--strict-config", "-ra", "--cov-fail-under=80"]
+markers = [
+    "integration: needs a real MongoDB (Testcontainers)",
+    "component: boots the full application against real containers",
+]
+
+[tool.coverage.run]
+# Principle VII: the 80% gate covers the domain and application packages only.
+source = ["src/notifications/domain", "src/notifications/application"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", '^\s*\.\.\.$']
