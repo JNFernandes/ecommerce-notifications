@@ -248,7 +248,7 @@ exist with the exact two messages.
   (`build_routing_table`), add
   `Route(settings.kafka_topic_order_cancelled, parse_order_cancelled, record_order_status.record_cancelled)`.
   Update the routing-table test: exactly the three order topics. Gate.
-- [ ] T017 [US2] Component tests in `tests/component/test_order_status_flow.py`: produce a
+- [X] T017 [US2] Component tests in `tests/component/test_order_status_flow.py`: produce a
   cancellation with the reason `payment failed: amount exceeds the threshold` and one without a
   reason; `eventually` two `ORDER_CANCELLED` documents with the exact messages
   `Your order <id> was cancelled: payment failed: amount exceeds the threshold.` and
