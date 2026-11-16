@@ -56,6 +56,11 @@ class Settings(BaseSettings):
         min_length=1,
         description="Topic of OrderCancelled events (ORDER_CANCELLED notifications).",
     )
+    kafka_topic_payment_refunded: str = Field(
+        default="payments.payment-refunded",
+        min_length=1,
+        description="Topic of PaymentRefunded events (PAYMENT_REFUNDED notifications).",
+    )
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=list,
         description="Comma-separated origins allowed by CORS. Empty means no cross-origin access.",
@@ -88,6 +93,7 @@ class Settings(BaseSettings):
             "kafka_topic_order_placed": self.kafka_topic_order_placed,
             "kafka_topic_order_confirmed": self.kafka_topic_order_confirmed,
             "kafka_topic_order_cancelled": self.kafka_topic_order_cancelled,
+            "kafka_topic_payment_refunded": self.kafka_topic_payment_refunded,
         }
         if len(set(topics.values())) != len(topics):
             raise ValueError(f"the consumed topics must be distinct: {topics}")

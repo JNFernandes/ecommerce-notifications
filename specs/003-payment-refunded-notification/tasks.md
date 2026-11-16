@@ -166,7 +166,7 @@ context's customer, then the send log line.
     nothing sent, no order context written;
   - duplicate → `ALREADY_RECORDED`, not sent;
   - a notification repository error propagates. Gate.
-- [ ] T009 [US1] Topic registration (depends on T002, T008):
+- [X] T009 [US1] Topic registration (depends on T002, T008):
   - in `src/notifications/infrastructure/settings.py`, add `kafka_topic_payment_refunded`
     (default `payments.payment-refunded`, `min_length=1`, a description) and include it in
     `_distinct_topics`;
