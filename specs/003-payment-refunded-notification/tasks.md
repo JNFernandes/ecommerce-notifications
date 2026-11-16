@@ -218,7 +218,7 @@ the message; the offset committed; no notification.
 
   Production code is not expected to change. If it does, keep it inside this story's files.
   Gate.
-- [ ] T012 [US2] Component test in `tests/component/test_payment_refunded_flow.py`, with a
+- [X] T012 [US2] Component test in `tests/component/test_payment_refunded_flow.py`, with a
   fast-retry fixture (`consumer_retry_max_attempts=3`, base 0.05 s, max 0.1 s):
   - produce a refund for an order that never had a placement;
   - `eventually` the group's committed offset passes it (`committed_offset`);
