@@ -58,7 +58,11 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 (ADR 0002):
 - `Notification`: insert under a UNIQUE index on `sourceEventId`. Duplicate key on that index =
   already recorded = success, no second log line. Any other error is a real failure.
-- `OrderContext`: upsert by `orderId`, written before the `ORDER_RECEIVED` notification.
+- `OrderContext`: `_id` = order id; `find_one_and_update` + `$setOnInsert` (first write wins,
+  a conflicting later event only logs a WARNING), written before the `ORDER_RECEIVED`
+  notification.
+- Dead letter: insert under a UNIQUE index on `(topic, partition, offset)`; duplicate = already
+  dead-lettered = success.
 
 ## Notification rules
 
@@ -85,7 +89,17 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
   the same change set.
 - `messaging/consumer_manager.py` (`KafkaConsumerManager`): runs in a background task, never
   blocks startup, reconnects with backoff, exposes `state` for `/health/ready`. Kafka down never
-  makes the service unready. It has no topics yet; consumers are added by the user stories.
+  makes the service unready. It subscribes to the topics of its `MessageHandler`s, processes
+  **one message at a time**, and commits `offset + 1` only when the processor returns `HANDLED`
+  (`STOPPED` = no commit). The connection attempt races the stop event, so shutdown is prompt.
+- `messaging/processor.py` (`RetryingMessageProcessor`): `InvalidMessageError` → dead letter at
+  once; any other error → retries with `RetryPolicy` backoff → dead letter. If the dead-letter
+  store fails, it waits `max_delay` and processes the **whole message again**; it never returns
+  `HANDLED` for an unhandled message (commits are cumulative per partition).
+- Parse payloads with `decode_json_object` (`json.loads(..., parse_float=Decimal)`) and validate
+  in Python mode with JSON-type guards (`BeforeValidator`s, see `messaging/order_placed.py`).
+  Never `model_validate_json` for amounts: it loses precision on large values, and lax mode
+  accepts `true` / `1.0` as `version: 1`.
 - aiokafka is untyped: it is the one `ignore_missing_imports` override in `pyproject.toml`. Keep
   aiokafka types at the messaging boundary.
 
@@ -102,7 +116,11 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 
 - Collections: `notifications`, `order_context`, `inbound_dead_letters`.
 - Indexes are declared **only** in `infrastructure/indexes.py` (`INDEXES`), applied at startup by
-  `ensure_indexes`. Bump `INDEX_SCHEMA_VERSION` when they change. No ad-hoc scripts.
+  `ensure_indexes`. Bump `INDEX_SCHEMA_VERSION` when they change (now 2). No ad-hoc scripts.
+- Mapping (`infrastructure/repositories/*`): UUIDs as strings, amounts as `Decimal128`
+  (`Decimal` in the domain), timestamps as BSON dates truncated to milliseconds in the domain.
+- Duplicate-key errors are mapped narrowly: only the `keyPattern` of the expected unique index
+  means "already stored"; any other duplicate re-raises.
 
 ## Code rules
 
@@ -123,7 +141,12 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 - Component: full app against real containers; drive the real lifespan with
   `app.router.lifespan_context(app)` and an httpx `AsyncClient` over `ASGITransport` (not
   Starlette's `TestClient`). Simulate other services by producing their events.
-- No `time.sleep` or bare `asyncio.sleep` in tests: use `tests/support/polling.py::wait_until`.
+- No `time.sleep` or bare `asyncio.sleep` in tests: use `tests/support/polling.py` (`wait_until`
+  for sync conditions, `eventually` for async probes such as DB queries or readiness).
+- Component helpers: `tests/support/app.py` (`run_app`, `component_settings`: fresh database and
+  consumer group per test), `tests/support/kafka.py` (topics, `produce` → partition/offset,
+  `committed_offset`, `pause_kafka`). The topic is shared across component tests and consumed
+  from the earliest offset, so assert only on this test's events and offsets.
 - Names describe behaviour: `test_should_..._when_...`.
 - Coverage: `--cov-fail-under=80` on `src/notifications/domain` and `src/notifications/application`.
 
@@ -144,3 +167,14 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
   numbers, never renumbered). Current: 0001 MongoDB, 0002 idempotency without transactions,
   0003 consume `orders.order-placed` for the refund customer.
 - Keep `README.md`, this file and the `Dockerfile` up to date with every behaviour change.
+
+## Where things are (US-01)
+
+`orders.order-placed` → `messaging/order_placed.py` (`OrderPlacedHandler`, `OrderPlacedEvent`) →
+`application/record_order_received.py` (`RecordOrderReceivedService`: order context first, then
+the notification, then `NotificationSender.send`) → `domain/` (`Notification.order_received`,
+`OrderContext`, `messages.py` template, `time.py`) → `infrastructure/repositories/`
+(`notifications.py`, `order_contexts.py`, `dead_letters.py`) and `infrastructure/sender.py`
+(simulated send on the `notifications.send` logger). Retry settings: `CONSUMER_RETRY_*` in
+`infrastructure/settings.py`, turned into a `RetryPolicy` in `main.py`. Spec and design:
+`specs/001-order-received-notification/`.
