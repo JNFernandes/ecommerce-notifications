@@ -164,7 +164,7 @@ message `Your order <orderId> was confirmed.` and one send log line; no order co
   - bad UUID;
   - bad JSON (`b"not json"`);
   - `version` 2. Gate.
-- [ ] T010 [US1] Application (depends on T008, T009): add
+- [X] T010 [US1] Application (depends on T008, T009): add
   `RecordOrderStatusService(notifications, sender, clock, ids)` with
   `record_confirmed(command) -> RecordOutcome` (factory → `record_and_send`) to
   `src/notifications/application/record_order_status.py`.
