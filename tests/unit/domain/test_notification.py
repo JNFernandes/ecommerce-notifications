@@ -70,3 +70,11 @@ def test_should_not_allow_changing_a_stored_notification() -> None:
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         notification.message = "changed"  # type: ignore[misc]  # immutability is what is tested
+
+
+def test_should_offer_one_type_per_order_event_with_the_stored_values() -> None:
+    assert [member.value for member in NotificationType] == [
+        "ORDER_RECEIVED",
+        "ORDER_CONFIRMED",
+        "ORDER_CANCELLED",
+    ]

@@ -50,7 +50,7 @@ before; every existing US-01 test stays green (some are adapted to new names).
 
 **⚠️ CRITICAL**: No user story work starts before this phase is complete.
 
-- [ ] T002 [P] Domain:
+- [X] T002 [P] Domain:
   - in `src/notifications/domain/notification.py`, add `ORDER_CONFIRMED` and `ORDER_CANCELLED`
     to `NotificationType`;
   - extract a private classmethod `_create(*, notification_id, customer_id, order_id, type,
