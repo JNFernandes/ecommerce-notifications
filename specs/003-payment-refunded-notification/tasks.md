@@ -277,7 +277,7 @@ one order.
     retryable; `EventEnvelope` / `OrderEventEnvelope`; test topics = `CONSUMED_TOPICS`);
   - extend "Where things are" with US-03;
   - remove "Active feature". Gate.
-- [ ] T017 [P] In the ecommerce-infra repository, on branch
+- [X] T017 [P] In the ecommerce-infra repository, on branch
   `docs/notifications-consumes-payment-refunded` from an up-to-date `main`, update
   `docs/events.md` (research R9):
   - in the Topics table, the Notifications consumer of `payments.payment-refunded` becomes
