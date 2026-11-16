@@ -5,7 +5,11 @@ from uuid import UUID
 
 import pytest
 
-from notifications.domain.errors import InvalidAmountError, InvalidOrderTotalError
+from notifications.domain.errors import (
+    InvalidAmountError,
+    InvalidCurrencyError,
+    InvalidOrderTotalError,
+)
 from notifications.domain.messages import (
     MAX_REASON_LENGTH,
     format_amount,
@@ -13,6 +17,7 @@ from notifications.domain.messages import (
     order_cancelled_message,
     order_confirmed_message,
     order_received_message,
+    payment_refunded_message,
 )
 
 ORDER_ID = UUID("0d1e2f3a-0000-4000-8000-0000000000aa")
@@ -117,3 +122,37 @@ def test_should_produce_the_same_cancelled_text_every_time() -> None:
     reason = "  payment failed:\n card declined. "
 
     assert order_cancelled_message(ORDER_ID, reason) == order_cancelled_message(ORDER_ID, reason)
+
+
+@pytest.mark.parametrize(
+    ("amount", "currency", "shown"),
+    [
+        ("129.9", "EUR", "129.90 EUR"),
+        ("0", "USD", "0.00 USD"),
+        ("10.005", "EUR", "10.01 EUR"),
+        ("123456789012345678.123456789", "EUR", "123456789012345678.12 EUR"),
+    ],
+)
+def test_should_show_the_refunded_amount_with_two_decimals_and_the_currency(
+    amount: str, currency: str, shown: str
+) -> None:
+    assert payment_refunded_message(ORDER_ID, Decimal(amount), currency) == (
+        f"Your payment of {shown} for order 0d1e2f3a-0000-4000-8000-0000000000aa was refunded."
+    )
+
+
+@pytest.mark.parametrize("currency", ["eur", "EURO", "", "E1R", "EUR\n"])
+def test_should_reject_a_currency_that_is_not_three_uppercase_letters(currency: str) -> None:
+    with pytest.raises(InvalidCurrencyError):
+        payment_refunded_message(ORDER_ID, Decimal("1"), currency)
+
+
+def test_should_reject_a_negative_refund_amount() -> None:
+    with pytest.raises(InvalidAmountError):
+        payment_refunded_message(ORDER_ID, Decimal("-1"), "EUR")
+
+
+def test_should_produce_the_same_refund_text_every_time() -> None:
+    assert payment_refunded_message(ORDER_ID, Decimal("5"), "EUR") == payment_refunded_message(
+        ORDER_ID, Decimal("5.00"), "EUR"
+    )

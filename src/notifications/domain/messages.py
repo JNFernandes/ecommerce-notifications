@@ -4,10 +4,16 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
-from notifications.domain.errors import InvalidAmountError, InvalidOrderTotalError
+from notifications.domain.errors import (
+    InvalidAmountError,
+    InvalidCurrencyError,
+    InvalidOrderTotalError,
+)
 
 _CENTS = Decimal("0.01")
 _LINE_BREAKS_AND_TABS = re.compile(r"[\r\n\t]+")
+
+_CURRENCY_CODE = re.compile(r"[A-Z]{3}")
 
 MAX_REASON_LENGTH = 500
 """Longest cancellation reason shown in a message; longer reasons are cut and end with ``…``."""
@@ -83,3 +89,25 @@ def order_cancelled_message(order_id: UUID, reason: str | None) -> str:
     if shown is None:
         return f"Your order {order_id} was cancelled."
     return f"Your order {order_id} was cancelled: {shown}."
+
+
+def require_currency_code(code: str) -> str:
+    """Return ``code`` if it is a three-letter uppercase ISO 4217 code.
+
+    Raises:
+        InvalidCurrencyError: otherwise.
+    """
+    if not _CURRENCY_CODE.fullmatch(code):
+        raise InvalidCurrencyError(f"currency must be three uppercase letters, got {code!r}")
+    return code
+
+
+def payment_refunded_message(order_id: UUID, amount: Decimal, currency: str) -> str:
+    """Text of the ``PAYMENT_REFUNDED`` notification: amount with two decimals, then currency.
+
+    Raises:
+        InvalidAmountError: if the amount is negative, infinite or NaN.
+        InvalidCurrencyError: if the currency is not a three-letter uppercase code.
+    """
+    shown = f"{format_amount(amount)} {require_currency_code(currency)}"
+    return f"Your payment of {shown} for order {order_id} was refunded."

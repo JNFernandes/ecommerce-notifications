@@ -114,7 +114,7 @@ context's customer, then the send log line.
 `orderId` with a different `aggregateId` → one notification with
 `Your payment of 129.90 EUR for order <orderId> was refunded.` and the placement's customer.
 
-- [ ] T006 [P] [US1] Domain:
+- [X] T006 [P] [US1] Domain:
   - in `src/notifications/domain/messages.py`, add `require_currency_code(code) -> str`
     (`^[A-Z]{3}$`, otherwise `InvalidCurrencyError`) and
     `payment_refunded_message(order_id, amount, currency) -> str`

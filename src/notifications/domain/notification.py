@@ -11,6 +11,7 @@ from notifications.domain.messages import (
     order_cancelled_message,
     order_confirmed_message,
     order_received_message,
+    payment_refunded_message,
 )
 from notifications.domain.time import require_utc_millis
 
@@ -24,6 +25,8 @@ class NotificationType(StrEnum):
     """From ``orders.order-confirmed`` (US-02)."""
     ORDER_CANCELLED = "ORDER_CANCELLED"
     """From ``orders.order-cancelled`` (US-02)."""
+    PAYMENT_REFUNDED = "PAYMENT_REFUNDED"
+    """From ``payments.payment-refunded`` (US-03)."""
 
 
 class NotificationChannel(StrEnum):
@@ -129,6 +132,35 @@ class Notification:
             order_id=order_id,
             notification_type=NotificationType.ORDER_CANCELLED,
             message=order_cancelled_message(order_id, reason),
+            source_event_id=source_event_id,
+            now=now,
+        )
+
+    @classmethod
+    def payment_refunded(
+        cls,
+        *,
+        notification_id: UUID,
+        customer_id: UUID,
+        order_id: UUID,
+        amount: Decimal,
+        currency: str,
+        source_event_id: UUID,
+        now: datetime,
+    ) -> Self:
+        """Build the ``PAYMENT_REFUNDED`` notification for the customer of the order.
+
+        Raises:
+            InvalidAmountError: if ``amount`` is negative or not finite.
+            InvalidCurrencyError: if ``currency`` is not a three-letter uppercase code.
+            NaiveTimestampError: if ``now`` has no timezone.
+        """
+        return cls._create(
+            notification_id=notification_id,
+            customer_id=customer_id,
+            order_id=order_id,
+            notification_type=NotificationType.PAYMENT_REFUNDED,
+            message=payment_refunded_message(order_id, amount, currency),
             source_event_id=source_event_id,
             now=now,
         )
