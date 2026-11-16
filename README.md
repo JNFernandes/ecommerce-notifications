@@ -10,27 +10,41 @@ API is read-only, and the service publishes no events.
 The rules for this codebase are in the [constitution](.specify/memory/constitution.md).
 Architectural decisions are in [docs/adr](docs/adr/README.md).
 
-> **Status:** project bootstrap. The service starts, connects to MongoDB and Kafka, and answers
-> the health endpoints. The consumers and the notification queries below come with their user
+> **Status:** US-01 done. The service consumes `orders.order-placed` and records the "order
+> received" notification. The other topics and the notification queries come with their user
 > stories.
 
 ## Consumed topics
 
-| Topic | Notification | Notes |
-|---|---|---|
-| `orders.order-placed` | `ORDER_RECEIVED` | Also stores the order's customer and total (`OrderContext`), see [ADR 0003](docs/adr/0003-consume-order-placed-for-refund-customer.md). |
-| `orders.order-confirmed` | `ORDER_CONFIRMED` | |
-| `orders.order-cancelled` | `ORDER_CANCELLED` | The message includes the cancellation reason when present. |
-| `payments.payment-refunded` | `PAYMENT_REFUNDED` | The event has no `customerId`; the customer comes from the `OrderContext`. |
+| Topic | Notification | Notes | Status |
+|---|---|---|---|
+| `orders.order-placed` | `ORDER_RECEIVED` | Also stores the order's customer and total (`OrderContext`), see [ADR 0003](docs/adr/0003-consume-order-placed-for-refund-customer.md). Message: `Your order <orderId> for <totalAmount> was received.` | implemented (US-01) |
+| `orders.order-confirmed` | `ORDER_CONFIRMED` | | planned |
+| `orders.order-cancelled` | `ORDER_CANCELLED` | The message includes the cancellation reason when present. | planned |
+| `payments.payment-refunded` | `PAYMENT_REFUNDED` | The event has no `customerId`; the customer comes from the `OrderContext`. | planned |
 
 Payloads are defined in
 [`ecommerce-infra/docs/events.md`](../ecommerce-infra/docs/events.md), the source of truth for
 every event contract.
 
-Each event is processed at most once per `eventId`: a notification is stored under a unique index
-on its source event id, so a redelivered event changes nothing
-([ADR 0002](docs/adr/0002-idempotency-without-transactions.md)). Messages that still fail after
-retries, and invalid messages, are stored in the `inbound_dead_letters` collection.
+### Processing guarantees
+
+- **One notification per event.** A notification is stored under a unique index on its source
+  event id, so a redelivered event changes nothing and is not an error
+  ([ADR 0002](docs/adr/0002-idempotency-without-transactions.md)). The simulated send (a log line
+  on `notifications.send`) is written only after the notification is stored, never for a
+  duplicate.
+- **Offset after save.** The Kafka offset of a message is committed only after it was stored or
+  dead-lettered. Messages are processed one at a time per instance.
+- **Invalid messages** (not UTF-8, not JSON, missing or invalid fields, `version` other than 1)
+  go straight to the `inbound_dead_letters` collection, with the original payload, topic,
+  partition, offset and the reason. They are not retried.
+- **Failing messages** are retried with capped exponential backoff (see `CONSUMER_RETRY_*`
+  below), then dead-lettered with the last error and the number of attempts.
+- **No message is skipped.** If the dead-letter collection itself cannot be written (MongoDB
+  down), the consumer holds the message and processes it again after `CONSUMER_RETRY_MAX_DELAY_SECONDS`
+  until it is stored or dead-lettered.
+- Amounts are read and stored exactly (`Decimal`, `Decimal128` in MongoDB), never as floats.
 
 ## HTTP API
 
@@ -75,6 +89,34 @@ The service starts even when Kafka is not reachable. The consumer manager keeps 
 background with exponential backoff, and readiness shows the Kafka state. MongoDB must be reachable
 at startup because the indexes are applied then.
 
+### Troubleshooting: "Authentication failed" on startup
+
+If startup fails with `pymongo.errors.OperationFailure: Authentication failed`, another MongoDB
+is probably installed on the machine (for example a Windows service) and listens on
+`127.0.0.1:27017`. That address is more specific than Docker's `0.0.0.0:27017`, so `localhost`
+reaches the other MongoDB, which does not have the `mongo_user` account.
+
+Check what listens on the port:
+
+```powershell
+netstat -ano | findstr ":27017"
+```
+
+If you see both `127.0.0.1:27017` and `0.0.0.0:27017`, point the service at `127.0.0.2`. It is
+also this computer, but only Docker's MongoDB listens there:
+
+```powershell
+# current terminal only
+$env:MONGODB_URI = 'mongodb://mongo_user:mongo_pass@127.0.0.2:27017/?authSource=admin'
+
+# or permanently for your user (open a new terminal afterwards)
+[Environment]::SetEnvironmentVariable('MONGODB_URI', 'mongodb://mongo_user:mongo_pass@127.0.0.2:27017/?authSource=admin', 'User')
+```
+
+The other MongoDB keeps working on `127.0.0.1`. The tests and the Docker image are not affected:
+the tests start their own MongoDB container, and the image connects to `mongo:27017` inside the
+compose network.
+
 ### Configuration
 
 All settings come from environment variables. The defaults match `ecommerce-infra` on localhost.
@@ -87,6 +129,14 @@ All settings come from environment variables. The defaults match `ecommerce-infr
 | `KAFKA_GROUP_ID` | `notifications-service` | Consumer group id |
 | `CORS_ALLOWED_ORIGINS` | empty | Comma-separated origins allowed to call the API (`GET` only) |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
+| `CONSUMER_RETRY_MAX_ATTEMPTS` | `5` | Attempts per consumed message, the first included (`>= 1`; `1` means no retries) |
+| `CONSUMER_RETRY_BASE_DELAY_SECONDS` | `1.0` | Pause before the second attempt (`> 0`) |
+| `CONSUMER_RETRY_MULTIPLIER` | `2.0` | Growth factor of the pause between attempts (`>= 1`) |
+| `CONSUMER_RETRY_MAX_DELAY_SECONDS` | `10.0` | Cap on any single pause (`>=` the base delay); also the pause between rounds while the dead-letter collection cannot be written |
+
+The pause before attempt `n` (n ≥ 2) is `min(BASE_DELAY × MULTIPLIER^(n-2), MAX_DELAY)`. With the
+defaults the pauses are 1, 2, 4 and 8 seconds, about 15 seconds per failing message. An invalid
+value stops the service at startup with an error naming the variable.
 
 ### Docker
 
@@ -116,9 +166,11 @@ uv run pytest --cov
 - `ruff format` (without `--check`) fixes formatting; `ruff check --fix` fixes the fixable lint
   findings.
 - `mypy` runs in strict mode over `src` and `tests`.
-- `pytest --cov` runs unit and component tests and fails below 80% line and branch coverage of
-  the `domain` and `application` packages. Docker must be running: the component tests start a
-  MongoDB container. No test needs Kafka to be running.
+- `pytest --cov` runs unit, integration and component tests and fails below 80% line and branch
+  coverage of the `domain` and `application` packages. Docker must be running: the tests start
+  MongoDB (`mongo:7`) and Kafka (`confluentinc/cp-kafka:7.6.1`) containers. They do not use the
+  ecommerce-infra stack, so it may be running or not. The Kafka outage tests pause the test broker
+  with `docker pause`.
 
 ## Project layout
 
@@ -126,14 +178,15 @@ uv run pytest --cov
 src/notifications/
   main.py            Composition root: settings, MongoDB client, consumer manager, lifespan
   api/               FastAPI routers and response models (read-only HTTP surface)
-  messaging/         Kafka consumers and the background consumer manager
-  application/       Application services and the repository / probe Protocols they use
+  messaging/         Kafka handlers, retry/dead-letter processor, background consumer manager
+  application/       Application services and the ports (Protocols) they use
   domain/            Business logic in plain Python (no FastAPI, aiokafka, pymongo or Pydantic)
-  infrastructure/    Settings, MongoDB client, persistence documents, versioned index module
+  infrastructure/    Settings, MongoDB client, repositories, simulated sender, index module
 tests/
-  unit/              Domain and application in isolation; API with fakes; no containers
-  component/         The full application against a real MongoDB container
-  support/           Fakes and the polling helper (no fixed sleeps in tests)
+  unit/              Domain, application and messaging in isolation, with fakes; no containers
+  integration/       Repositories and indexes against a real MongoDB container
+  component/         The full application against real MongoDB and Kafka containers
+  support/           Fakes, event builders, Kafka helpers and polling (no fixed sleeps in tests)
 docs/adr/            Architecture Decision Records
 ```
 

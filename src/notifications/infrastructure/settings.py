@@ -1,9 +1,9 @@
 """Service configuration read from environment variables, with defaults for local development."""
 
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -46,6 +46,34 @@ class Settings(BaseSettings):
         description="Comma-separated origins allowed by CORS. Empty means no cross-origin access.",
     )
     log_level: LogLevel = Field(default=LogLevel.INFO, description="Root log level.")
+    consumer_retry_max_attempts: int = Field(
+        default=5,
+        ge=1,
+        description="Attempts per consumed message, the first included. 1 means no retries.",
+    )
+    consumer_retry_base_delay_seconds: float = Field(
+        default=1.0, gt=0, description="Pause before the second attempt, in seconds."
+    )
+    consumer_retry_multiplier: float = Field(
+        default=2.0, ge=1, description="Growth factor of the pause between attempts."
+    )
+    consumer_retry_max_delay_seconds: float = Field(
+        default=10.0,
+        gt=0,
+        description=(
+            "Cap on any single pause, in seconds. Also the pause between rounds while the "
+            "dead-letter store is unavailable."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _max_delay_not_below_base_delay(self) -> Self:
+        """Reject a maximum delay smaller than the base delay."""
+        if self.consumer_retry_max_delay_seconds < self.consumer_retry_base_delay_seconds:
+            raise ValueError(
+                "consumer_retry_max_delay_seconds must be >= consumer_retry_base_delay_seconds"
+            )
+        return self
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
