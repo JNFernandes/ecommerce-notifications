@@ -24,10 +24,10 @@ from aiokafka.structs import TopicPartition
 from notifications.application.health import ConsumerState
 from notifications.messaging.messages import (
     ConsumedMessage,
-    MessageHandler,
     MessageProcessor,
     ProcessResult,
 )
+from notifications.messaging.routing import RoutingTable
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ class KafkaConsumerManager:
         bootstrap_servers: str,
         group_id: str,
         *,
-        handlers: Sequence[MessageHandler] = (),
+        routing: RoutingTable | None = None,
         processor: MessageProcessor | None = None,
         stop_event: asyncio.Event | None = None,
         consumer_factory: ConsumerFactory | None = None,
@@ -96,8 +96,8 @@ class KafkaConsumerManager:
         Args:
             bootstrap_servers: Comma-separated Kafka brokers.
             group_id: Consumer group id.
-            handlers: One handler per consumed topic.
-            processor: Runs the handlers; required when there are handlers.
+            routing: Routing table of the consumed topics (topic -> parser + service method).
+            processor: Runs the routing table for each message; required with a routing table.
             stop_event: Event set by :meth:`stop`. Pass the same event to the processor's
                 sleeper so that retry pauses end promptly on shutdown.
             consumer_factory: Builds the consumer for the given topics (tests pass a fake).
@@ -106,11 +106,11 @@ class KafkaConsumerManager:
             check_interval_seconds: How often the broker connection is verified.
             request_timeout_seconds: Timeout for connecting and for the connectivity check.
         """
-        if handlers and processor is None:
-            raise ValueError("a processor is required when handlers are registered")
+        if routing is not None and processor is None:
+            raise ValueError("a processor is required with a routing table")
         self._bootstrap_servers = bootstrap_servers
         self._group_id = group_id
-        self._handlers = {handler.topic: handler for handler in handlers}
+        self._routing = routing
         self._processor = processor
         self._stop_requested = stop_event if stop_event is not None else asyncio.Event()
         self._consumer_factory = consumer_factory or self._create_consumer
@@ -158,7 +158,7 @@ class KafkaConsumerManager:
         backoff = self._initial_backoff
         while not self._stop_requested.is_set():
             self._state = ConsumerState.CONNECTING
-            consumer = self._consumer_factory(sorted(self._handlers))
+            consumer = self._consumer_factory(self._routing.topics if self._routing else ())
             try:
                 if await self._connect(consumer):
                     backoff = self._initial_backoff
@@ -215,7 +215,7 @@ class KafkaConsumerManager:
         """Return when a stop is requested or the broker connection is lost."""
         next_check = time.monotonic() + self._check_interval
         while not self._stop_requested.is_set():
-            if self._handlers:
+            if self._routing is not None:
                 if not await self._poll_once(consumer):
                     return
             elif await self._sleep_unless_stopped(max(0.0, next_check - time.monotonic())):
@@ -240,8 +240,8 @@ class KafkaConsumerManager:
 
     async def _process(self, consumer: KafkaConsumerClient, record: KafkaRecord) -> bool:
         """Process one record and commit it when handled; return ``False`` on stop."""
-        if self._processor is None:  # pragma: no cover - guarded in __init__
-            raise RuntimeError("no processor configured")
+        if self._processor is None or self._routing is None:  # pragma: no cover - guarded
+            raise RuntimeError("no processor or routing table configured")
         message = ConsumedMessage(
             topic=record.topic,
             partition=record.partition,
@@ -250,7 +250,7 @@ class KafkaConsumerManager:
             value=record.value,
             timestamp_ms=record.timestamp,
         )
-        result = await self._processor.process(message, self._handlers[record.topic])
+        result = await self._processor.process(message, self._routing)
         if result is ProcessResult.STOPPED:
             return False
         try:

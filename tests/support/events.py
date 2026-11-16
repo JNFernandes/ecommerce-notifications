@@ -51,3 +51,28 @@ def to_json_bytes(payload: object) -> bytes:
     for index, value in enumerate(decimals):
         text = text.replace(f'"__decimal_{index}__"', str(value))
     return text.encode()
+
+
+ORDER_CONFIRMED_TOPIC = "orders.order-confirmed"
+ORDER_CANCELLED_TOPIC = "orders.order-cancelled"
+
+
+def order_status_payload(**overrides: object) -> dict[str, object]:
+    """Return a valid ``orders.order-confirmed`` / ``orders.order-cancelled`` JSON object.
+
+    Both events share the envelope plus ``customerId``; add ``reason=...`` for a cancellation.
+    An override with the value ``MISSING`` removes the key.
+    """
+    payload: dict[str, object] = {
+        "eventId": str(uuid4()),
+        "aggregateId": str(uuid4()),
+        "occurredAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "version": 1,
+        "customerId": str(uuid4()),
+    }
+    for key, value in overrides.items():
+        if value is MISSING:
+            payload.pop(key, None)
+        else:
+            payload[key] = value
+    return payload

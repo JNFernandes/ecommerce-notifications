@@ -6,7 +6,14 @@ from uuid import UUID
 import pytest
 
 from notifications.domain.errors import InvalidOrderTotalError
-from notifications.domain.messages import format_amount, order_received_message
+from notifications.domain.messages import (
+    MAX_REASON_LENGTH,
+    format_amount,
+    normalise_reason,
+    order_cancelled_message,
+    order_confirmed_message,
+    order_received_message,
+)
 
 ORDER_ID = UUID("0d1e2f3a-0000-4000-8000-0000000000aa")
 
@@ -44,3 +51,60 @@ def test_should_produce_the_same_text_for_the_same_input() -> None:
     assert order_received_message(ORDER_ID, Decimal("5")) == order_received_message(
         ORDER_ID, Decimal("5.00")
     )
+
+
+def test_should_build_the_order_confirmed_text_from_the_template() -> None:
+    assert (
+        order_confirmed_message(ORDER_ID)
+        == "Your order 0d1e2f3a-0000-4000-8000-0000000000aa was confirmed."
+    )
+
+
+def test_should_produce_the_same_confirmed_text_every_time() -> None:
+    assert order_confirmed_message(ORDER_ID) == order_confirmed_message(ORDER_ID)
+
+
+@pytest.mark.parametrize("reason", [None, "", "   ", "\n\t", "."])
+def test_should_use_the_generic_cancelled_text_when_there_is_no_reason(
+    reason: str | None,
+) -> None:
+    assert order_cancelled_message(ORDER_ID, reason) == (
+        "Your order 0d1e2f3a-0000-4000-8000-0000000000aa was cancelled."
+    )
+
+
+def test_should_show_the_reason_of_a_cancellation() -> None:
+    assert order_cancelled_message(ORDER_ID, "payment failed: amount exceeds the threshold") == (
+        "Your order 0d1e2f3a-0000-4000-8000-0000000000aa was cancelled: "
+        "payment failed: amount exceeds the threshold."
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw", "shown"),
+    [
+        ("  stock rejected: insufficient stock.  ", "stock rejected: insufficient stock"),
+        ("a\r\nb\tc", "a b c"),
+        ("line one\r\n\r\nline two", "line one line two"),
+        ("card expired...", "card expired.."),
+        ("payment failed", "payment failed"),
+    ],
+)
+def test_should_normalise_the_reason(raw: str, shown: str) -> None:
+    assert normalise_reason(raw) == shown
+
+
+def test_should_keep_a_reason_of_exactly_the_maximum_length() -> None:
+    reason = "x" * MAX_REASON_LENGTH
+
+    assert normalise_reason(reason) == reason
+
+
+def test_should_cut_a_longer_reason_and_mark_the_cut() -> None:
+    assert normalise_reason("x" * (MAX_REASON_LENGTH + 1)) == "x" * MAX_REASON_LENGTH + "…"
+
+
+def test_should_produce_the_same_cancelled_text_every_time() -> None:
+    reason = "  payment failed:\n card declined. "
+
+    assert order_cancelled_message(ORDER_ID, reason) == order_cancelled_message(ORDER_ID, reason)

@@ -93,3 +93,51 @@ async def test_should_raise_on_a_duplicate_key_of_another_index(
 
     with pytest.raises(DuplicateKeyError):
         await repository.add(same_id_other_event)
+
+
+def _status_notification(kind: str, source_event_id: UUID) -> Notification:
+    if kind == "confirmed":
+        return Notification.order_confirmed(
+            notification_id=uuid4(),
+            customer_id=uuid4(),
+            order_id=uuid4(),
+            source_event_id=source_event_id,
+            now=datetime(2026, 11, 16, 10, 0, tzinfo=UTC),
+        )
+    return Notification.order_cancelled(
+        notification_id=uuid4(),
+        customer_id=uuid4(),
+        order_id=uuid4(),
+        reason="stock rejected: insufficient stock",
+        source_event_id=source_event_id,
+        now=datetime(2026, 11, 16, 10, 0, tzinfo=UTC),
+    )
+
+
+@pytest.mark.parametrize("kind", ["confirmed", "cancelled"])
+async def test_should_keep_one_status_notification_when_its_event_is_redelivered(
+    database: AsyncDatabase[Document], kind: str
+) -> None:
+    await ensure_indexes(database)
+    repository = MongoNotificationRepository(database)
+    event_id = uuid4()
+
+    first = await repository.add(_status_notification(kind, event_id))
+    again = await repository.add(_status_notification(kind, event_id))
+
+    assert (first, again) == (True, False)
+    assert await database["notifications"].count_documents({"sourceEventId": str(event_id)}) == 1
+
+
+@pytest.mark.parametrize("kind", ["confirmed", "cancelled"])
+async def test_should_read_back_an_equal_status_notification(
+    database: AsyncDatabase[Document], kind: str
+) -> None:
+    notification = _status_notification(kind, uuid4())
+    await MongoNotificationRepository(database).add(notification)
+
+    document = await database["notifications"].find_one({"_id": str(notification.id)})
+
+    assert document is not None
+    assert document["type"] == notification.type.value
+    assert from_document(document) == notification

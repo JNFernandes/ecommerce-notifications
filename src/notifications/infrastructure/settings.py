@@ -41,6 +41,21 @@ class Settings(BaseSettings):
         default="notifications-service",
         description="Kafka consumer group id.",
     )
+    kafka_topic_order_placed: str = Field(
+        default="orders.order-placed",
+        min_length=1,
+        description="Topic of OrderPlaced events (ORDER_RECEIVED notifications).",
+    )
+    kafka_topic_order_confirmed: str = Field(
+        default="orders.order-confirmed",
+        min_length=1,
+        description="Topic of OrderConfirmed events (ORDER_CONFIRMED notifications).",
+    )
+    kafka_topic_order_cancelled: str = Field(
+        default="orders.order-cancelled",
+        min_length=1,
+        description="Topic of OrderCancelled events (ORDER_CANCELLED notifications).",
+    )
     cors_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=list,
         description="Comma-separated origins allowed by CORS. Empty means no cross-origin access.",
@@ -65,6 +80,18 @@ class Settings(BaseSettings):
             "dead-letter store is unavailable."
         ),
     )
+
+    @model_validator(mode="after")
+    def _distinct_topics(self) -> Self:
+        """Reject two consumed topics with the same name (one route per topic)."""
+        topics = {
+            "kafka_topic_order_placed": self.kafka_topic_order_placed,
+            "kafka_topic_order_confirmed": self.kafka_topic_order_confirmed,
+            "kafka_topic_order_cancelled": self.kafka_topic_order_cancelled,
+        }
+        if len(set(topics.values())) != len(topics):
+            raise ValueError(f"the consumed topics must be distinct: {topics}")
+        return self
 
     @model_validator(mode="after")
     def _max_delay_not_below_base_delay(self) -> Self:

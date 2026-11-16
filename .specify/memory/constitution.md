@@ -1,28 +1,23 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change:    (template) → 1.0.0
-Bump rationale:    MAJOR (initial ratification) — every placeholder of the Spec Kit template
-                   replaced with concrete principles. Structure, numbering, wording style and
-                   section order modelled on ecommerce-inventory v1.0.1, adapted to Python 3.12 /
-                   FastAPI / MongoDB and to a consume-only service with a read-only HTTP API.
+Version change:    1.0.0 → 1.1.0
+Bump rationale:    MINOR — materially changed guidance in one principle, nothing removed. The
+                   component-test MUST "… → notification readable over HTTP" could not be met
+                   before the read API exists (US-04), so US-01 and US-02 fell short of it (found by
+                   /speckit-analyze on specs/002-order-confirmed-cancelled, finding C1). The rule
+                   now applies once the read API exists, adds the interim rule (assert the stored
+                   notification in MongoDB) and an explicit catch-up obligation for the story that
+                   introduces the read API.
 
 Modified principles:
-  - [PRINCIPLE_1_NAME] → I. Domain-Driven Design & Layered Architecture
-  - [PRINCIPLE_2_NAME] → II. Event-Driven Service, Read-Only API (NON-NEGOTIABLE)
-  - [PRINCIPLE_3_NAME] → III. Write Flow Integrity (NON-NEGOTIABLE)
-  - [PRINCIPLE_4_NAME] → IV. Notification Integrity (NON-NEGOTIABLE)
-  - [PRINCIPLE_5_NAME] → V. Type Safety & Input Validation
+  - VII. Testing Strategy — title unchanged. The component-test bullet now: full flow including
+    the HTTP read once the read API exists; until then assert the stored notification directly in
+    MongoDB; the story that introduces the read API MUST extend every existing component test with
+    the HTTP read assertion.
 
 Added sections:
-  - VI. Test Coverage
-  - VII. Testing Strategy
-  - VIII. Kafka Events (Consumer)
-  - IX. Branching Strategy
-  - X. Build & Code Quality Integrity (NON-NEGOTIABLE)
-  - Technology Stack (replaces [SECTION_2_NAME])
-  - Documentation Standards (replaces [SECTION_3_NAME])
-  - Governance (filled)
+  - (none)
 
 Removed sections:
   - (none)
@@ -34,20 +29,19 @@ Templates reviewed:
   ✅ .specify/templates/commands/*.md     — Directory not present in this project; nothing to update.
 
 Runtime guidance:
-  ⚠ README.md                 — not created yet; required by Documentation Standards.
-  ⚠ CLAUDE.md                 — not created yet; required by Documentation Standards.
-  ⚠ Dockerfile                — not created yet; required by the Technology Stack.
-  ⚠ docs/adr/README.md        — ADR index not created yet.
-  ⚠ pyproject.toml, uv.lock, .python-version, .editorconfig, .gitignore — required by
-    Principle X; to be created by the project bootstrap.
-  ⚠ ecommerce-infra/docs/events.md — Notifications consumers for orders.order-confirmed,
-    orders.order-cancelled and payments.payment-refunded are marked "planned"; mark them
-    "implemented" in the change set that builds each consumer. Notifications also consumes
-    orders.order-placed (Principle VIII), which the Topics table does not yet list as a
-    consumer; add it in the first consumer change set.
+  ✅ CLAUDE.md — "Tests" obligation reworded from a justified deviation to the v1.1.0 rule.
+  ✅ specs/002-order-confirmed-cancelled/plan.md — Constitution Check VII back to ✅; Complexity
+     Tracking entry closed by this amendment.
+  ✅ README.md, Dockerfile, docs/adr — no reference to the changed rule; no change needed.
 
 Migration note:
-  - None. No code exists yet.
+  - No code change. The component tests of US-01 and US-02 already assert in MongoDB, which is
+    now the required interim behaviour. US-04 MUST add the HTTP read assertion to
+    tests/component/test_order_placed_flow.py and tests/component/test_order_status_flow.py.
+
+Previous amendments:
+  - 1.0.0 (2026-11-16): initial ratification from the template, modelled on ecommerce-inventory
+    v1.0.1 and adapted to Python 3.12 / FastAPI / MongoDB.
 
 Deferred TODOs:
   (none)
@@ -184,8 +178,11 @@ Three test layers are required:
 - **Integration tests** — repositories and the unique indexes against a real MongoDB via
   Testcontainers (no mongomock or in-memory substitutes).
 - **Component tests** — the full application with real MongoDB and real Kafka via
-  Testcontainers. Other services are simulated by producing their events to Kafka. They MUST cover
-  the complete flow: event consumed → notification stored → notification readable over HTTP.
+  Testcontainers. Other services are simulated by producing their events to Kafka. Once the read
+  API exists, they MUST cover the complete flow: event consumed → notification stored →
+  notification readable over HTTP. Until then they MUST assert the stored notification directly in
+  MongoDB, and the story that introduces the read API MUST extend every existing component test
+  with the HTTP read assertion in the same change set.
 
 Tools: pytest, pytest-asyncio, pytest-cov, httpx for API tests, Testcontainers (MongoDB, Kafka).
 `time.sleep` and bare `asyncio.sleep` waits in tests are prohibited; asynchronous assertions MUST
@@ -363,4 +360,4 @@ note if existing code must change.
 Reviewers are empowered to block merges for violations without exception. New principles take
 effect immediately upon merge.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-16 | **Last Amended**: 2026-11-16
+**Version**: 1.1.0 | **Ratified**: 2026-11-16 | **Last Amended**: 2026-11-16
