@@ -68,6 +68,14 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 
 - Types (`StrEnum`): `ORDER_RECEIVED` (`orders.order-placed`), `ORDER_CONFIRMED`,
   `ORDER_CANCELLED` (include `reason` when present), `PAYMENT_REFUNDED`. Channel `email`.
+  Build them only through the `Notification` factories (`order_received`, `order_confirmed`,
+  `order_cancelled`), which share `_create` (email, `SENT`, UTC millis).
+- Cancellation reason: `domain/messages.py::normalise_reason` (runs of line breaks/tabs → one
+  space, trim, drop one trailing period, empty → no reason, > 500 chars → cut + `…`). The parser
+  passes the raw reason on; only the domain decides how it is shown. A non-string `reason` is an
+  invalid message (dead letter).
+- Confirmations and cancellations take the customer from the event and never touch
+  `OrderContext`.
 - Notifications are immutable. Messages come from domain templates: deterministic, ids and amounts
   only, no personal data beyond `customerId`.
 - `payments.payment-refunded` has no `customerId`: resolve it through `OrderContext` by `orderId`
@@ -87,9 +95,15 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 - Inbound models ignore unknown fields and reject missing required ones; every field has a
   docstring and matches `../ecommerce-infra/docs/events.md`. A contract change updates that file in
   the same change set.
+- **One consumer, one routing table** (`messaging/routing.py`): `Route(topic, parse, handle)`
+  connects a topic to its parser and exactly one application service method; `RoutingTable` is
+  the single `MessageHandler` given to the processor, and a topic without a route raises
+  `InvalidMessageError` (dead letter, never dropped). Register routes only in
+  `main.py::build_routing_table`; never add a second consumer. Topic names are settings
+  (`KAFKA_TOPIC_ORDER_*`, defaults = contract names).
 - `messaging/consumer_manager.py` (`KafkaConsumerManager`): runs in a background task, never
   blocks startup, reconnects with backoff, exposes `state` for `/health/ready`. Kafka down never
-  makes the service unready. It subscribes to the topics of its `MessageHandler`s, processes
+  makes the service unready. It subscribes to `routing.topics`, processes
   **one message at a time**, and commits `offset + 1` only when the processor returns `HANDLED`
   (`STOPPED` = no commit). The connection attempt races the stop event, so shutdown is prompt.
 - `messaging/processor.py` (`RetryingMessageProcessor`): `InvalidMessageError` → dead letter at
@@ -97,7 +111,9 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
   store fails, it waits `max_delay` and processes the **whole message again**; it never returns
   `HANDLED` for an unhandled message (commits are cumulative per partition).
 - Parse payloads with `decode_json_object` (`json.loads(..., parse_float=Decimal)`) and validate
-  in Python mode with JSON-type guards (`BeforeValidator`s, see `messaging/order_placed.py`).
+  in Python mode with JSON-type guards (`BeforeValidator`s in `messaging/events.py`). Every order
+  event model extends `OrderEventEnvelope` and is parsed with `parse_event`; a parser returns the
+  application command, so it plugs straight into a `Route`.
   Never `model_validate_json` for amounts: it loses precision on large values, and lax mode
   accepts `true` / `1.0` as `version: 1`.
 - aiokafka is untyped: it is the one `ignore_missing_imports` override in `pyproject.toml`. Keep
@@ -168,9 +184,9 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
   0003 consume `orders.order-placed` for the refund customer.
 - Keep `README.md`, this file and the `Dockerfile` up to date with every behaviour change.
 
-## Where things are (US-01)
+## Where things are
 
-`orders.order-placed` → `messaging/order_placed.py` (`OrderPlacedHandler`, `OrderPlacedEvent`) →
+US-01: `orders.order-placed` → `messaging/order_placed.py` (`OrderPlacedEvent`, `parse_order_placed`) →
 `application/record_order_received.py` (`RecordOrderReceivedService`: order context first, then
 the notification, then `NotificationSender.send`) → `domain/` (`Notification.order_received`,
 `OrderContext`, `messages.py` template, `time.py`) → `infrastructure/repositories/`
@@ -179,12 +195,9 @@ the notification, then `NotificationSender.send`) → `domain/` (`Notification.o
 `infrastructure/settings.py`, turned into a `RetryPolicy` in `main.py`. Spec and design:
 `specs/001-order-received-notification/`.
 
-## Active feature
-
-US-02 order confirmed / cancelled: `specs/002-order-confirmed-cancelled/` (plan, research R1–R8).
-Key decisions while implementing:
-- One consumer with a routing table (`messaging/routing.py`): `Route(topic, parse, handle)`;
-  `handle` is exactly one service method; a topic without a route is dead-lettered.
-- Order event envelope and JSON-type guards are shared in `messaging/events.py`.
-- Reason normalisation and templates are domain functions (`domain/messages.py`).
-- Topic names are settings (`KAFKA_TOPIC_ORDER_*`), defaults = contract names.
+US-02: `orders.order-confirmed` / `orders.order-cancelled` → `messaging/order_status.py`
+(`parse_order_confirmed`, `parse_order_cancelled`) → `application/record_order_status.py`
+(`RecordOrderStatusService.record_confirmed` / `record_cancelled`) → domain factories → the shared
+`application/recording.py::record_and_send` (store, then send; duplicates log
+`Event already recorded: type=… sourceEvent=… order=…`). Spec and design:
+`specs/002-order-confirmed-cancelled/`.

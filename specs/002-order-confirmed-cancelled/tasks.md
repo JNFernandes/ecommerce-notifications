@@ -300,7 +300,7 @@ processed; one consumer for all three topics.
   - add a short "routing table" sentence to Processing guarantees;
   - add the three `KAFKA_TOPIC_ORDER_*` variables to the Configuration table;
   - update the status line. Gate.
-- [ ] T023 [P] Update `CLAUDE.md`:
+- [X] T023 [P] Update `CLAUDE.md`:
   - move the "Active feature" notes into permanent rules: routing table and registration, shared
     `messaging/events.py`, domain reason normalisation, topic settings, generic duplicate log;
   - extend "Where things are" with US-02;
