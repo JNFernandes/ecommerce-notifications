@@ -19,6 +19,9 @@ def test_should_use_local_infrastructure_defaults_when_no_environment_is_set(
         "CONSUMER_RETRY_BASE_DELAY_SECONDS",
         "CONSUMER_RETRY_MULTIPLIER",
         "CONSUMER_RETRY_MAX_DELAY_SECONDS",
+        "KAFKA_TOPIC_ORDER_PLACED",
+        "KAFKA_TOPIC_ORDER_CONFIRMED",
+        "KAFKA_TOPIC_ORDER_CANCELLED",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -36,6 +39,9 @@ def test_should_use_local_infrastructure_defaults_when_no_environment_is_set(
     assert settings.consumer_retry_base_delay_seconds == 1.0
     assert settings.consumer_retry_multiplier == 2.0
     assert settings.consumer_retry_max_delay_seconds == 10.0
+    assert settings.kafka_topic_order_placed == "orders.order-placed"
+    assert settings.kafka_topic_order_confirmed == "orders.order-confirmed"
+    assert settings.kafka_topic_order_cancelled == "orders.order-cancelled"
 
 
 def test_should_read_comma_separated_cors_origins_from_the_environment(
@@ -93,3 +99,27 @@ def test_should_reject_an_invalid_retry_setting(
 
     with pytest.raises(ValueError, match=field):
         Settings(_env_file=None)
+
+
+def test_should_read_a_topic_name_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KAFKA_TOPIC_ORDER_CONFIRMED", "test.order-confirmed")
+
+    assert Settings(_env_file=None).kafka_topic_order_confirmed == "test.order-confirmed"
+
+
+def test_should_reject_an_empty_topic_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KAFKA_TOPIC_ORDER_CANCELLED", "")
+
+    with pytest.raises(ValueError, match="kafka_topic_order_cancelled"):
+        Settings(_env_file=None)
+
+
+def test_should_reject_two_consumed_topics_with_the_same_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KAFKA_TOPIC_ORDER_CONFIRMED", "orders.order-placed")
+
+    with pytest.raises(ValueError, match="consumed topics must be distinct") as raised:
+        Settings(_env_file=None)
+
+    assert "kafka_topic_order_confirmed" in str(raised.value)

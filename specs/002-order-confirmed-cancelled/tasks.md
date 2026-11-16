@@ -119,7 +119,7 @@ before; every existing US-01 test stays green (some are adapted to new names).
   Adapt `tests/unit/messaging/test_consumer_manager_consume.py` (pass a `RoutingTable` with one
   route) and `tests/unit/messaging/test_order_placed.py` (handler tests become "the route calls
   the service once"). The component tests for `orders.order-placed` stay green. Gate.
-- [ ] T007 Settings (depends on T006). In `src/notifications/infrastructure/settings.py`, add:
+- [X] T007 Settings (depends on T006). In `src/notifications/infrastructure/settings.py`, add:
   - `kafka_topic_order_placed`, default `orders.order-placed`;
   - `kafka_topic_order_confirmed`, default `orders.order-confirmed`;
   - `kafka_topic_order_cancelled`, default `orders.order-cancelled`;

@@ -71,7 +71,13 @@ def create_app(
             resolved.kafka_bootstrap_servers,
             resolved.kafka_group_id,
             routing=RoutingTable(
-                [Route("orders.order-placed", parse_order_placed, record_order_received.handle)]
+                [
+                    Route(
+                        resolved.kafka_topic_order_placed,
+                        parse_order_placed,
+                        record_order_received.handle,
+                    )
+                ]
             ),
             processor=RetryingMessageProcessor(
                 RetryPolicy(
