@@ -222,3 +222,14 @@ US-03: `payments.payment-refunded` → `messaging/payment_refunded.py` (`parse_p
 order = `orderId`) → `application/record_payment_refunded.py` (`RecordPaymentRefundedService`:
 `OrderContextRepository.get` → `OrderContextNotFoundError` or `Notification.payment_refunded` →
 `record_and_send`). Spec and design: `specs/003-payment-refunded-notification/`.
+
+## Active feature
+
+US-04 read API: `specs/004-notifications-read-api/` (plan, research R1–R8, contracts/http-api.md).
+- Router → one `NotificationQueryService` call; `NotificationReader` port (find_page, count,
+  find_by_id) implemented by `MongoNotificationRepository`.
+- `NotificationNotFoundError` → 404 and `PyMongoError` → 503 via handlers in `api/errors.py`;
+  FastAPI standard bodies. Sort `createdAt -1, _id -1`.
+- Indexes v3: `(field, createdAt -1, _id -1)` per filter + `(createdAt -1, _id -1)`; drop the
+  obsolete `ix_notifications_customer_created` through `OBSOLETE_INDEX_NAMES`.
+- FR-017: every existing component test reads its notification back via `GET /notifications/{id}`.
