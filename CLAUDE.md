@@ -178,3 +178,13 @@ the notification, then `NotificationSender.send`) → `domain/` (`Notification.o
 (simulated send on the `notifications.send` logger). Retry settings: `CONSUMER_RETRY_*` in
 `infrastructure/settings.py`, turned into a `RetryPolicy` in `main.py`. Spec and design:
 `specs/001-order-received-notification/`.
+
+## Active feature
+
+US-02 order confirmed / cancelled: `specs/002-order-confirmed-cancelled/` (plan, research R1–R8).
+Key decisions while implementing:
+- One consumer with a routing table (`messaging/routing.py`): `Route(topic, parse, handle)`;
+  `handle` is exactly one service method; a topic without a route is dead-lettered.
+- Order event envelope and JSON-type guards are shared in `messaging/events.py`.
+- Reason normalisation and templates are domain functions (`domain/messages.py`).
+- Topic names are settings (`KAFKA_TOPIC_ORDER_*`), defaults = contract names.
