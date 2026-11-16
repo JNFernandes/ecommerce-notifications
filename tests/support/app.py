@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from uuid import uuid4
 
 from httpx import ASGITransport, AsyncClient
@@ -62,3 +63,28 @@ async def run_app(settings: Settings, **app_options: float) -> AsyncIterator[Run
     finally:
         await client.drop_database(settings.mongodb_database)
         await client.close()
+
+
+_API_FIELDS = ("customerId", "orderId", "type", "channel", "message", "status", "sourceEventId")
+
+
+async def assert_readable_over_http(app: RunningApp, document: Document) -> None:
+    """Constitution VII: a stored notification is also readable through the read API, unchanged."""
+    response = await app.http.get(f"/notifications/{document['_id']}")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["id"] == document["_id"]
+    assert {field: body[field] for field in _API_FIELDS} == {
+        field: document[field] for field in _API_FIELDS
+    }
+    stored_at = document["createdAt"]
+    assert isinstance(stored_at, datetime)
+    assert datetime.fromisoformat(body["createdAt"]) == stored_at
+
+
+async def assert_stored_readable_over_http(app: RunningApp, query: Document) -> None:
+    """Read every notification matching ``query`` back through the API (at least one)."""
+    documents = await app.database["notifications"].find(query).to_list()
+    assert documents, f"no stored notification matches {query}"
+    for document in documents:
+        await assert_readable_over_http(app, document)

@@ -128,8 +128,16 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 
 ## HTTP
 
-- Only `GET /health/live`, `GET /health/ready`, and (planned) `GET /notifications` (filters
-  `customerId`, `orderId`, `type`; `limit` / `offset`; newest first) and `GET /notifications/{id}`.
+- Only `GET /health/live`, `GET /health/ready`, `GET /notifications` (filters `customerId`,
+  `orderId`, `type`; `limit` 1–100 / `offset` ≥ 0; newest first with `_id` tie-break; exact
+  `total`) and `GET /notifications/{id}`. No authentication: local and demo use only.
+- Read path: `api/notifications.py` (router, `NotificationResponse`, `NotificationPageResponse`)
+  → one `application/query_notifications.py::NotificationQueryService` call → the
+  `NotificationReader` port (`find_page`, `count`, `find_by_id`), implemented by
+  `MongoNotificationRepository`. Response models are separate from domain and documents.
+- Errors are mapped only in `api/errors.py`: `NotificationNotFoundError` → 404,
+  `PyMongoError` → 503 (never an empty result), both as the Pydantic `ErrorResponse`
+  (`{"detail": ...}`, FastAPI's standard shape); validation is FastAPI's standard 422.
 - No endpoint may create, change or delete data. A write endpoint or a produced event needs an ADR
   and a constitution amendment first.
 - Every endpoint and response model has descriptions (complete OpenAPI). CORS origins come from
@@ -139,7 +147,10 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 
 - Collections: `notifications`, `order_context`, `inbound_dead_letters`.
 - Indexes are declared **only** in `infrastructure/indexes.py` (`INDEXES`), applied at startup by
-  `ensure_indexes`. Bump `INDEX_SCHEMA_VERSION` when they change (now 2). No ad-hoc scripts.
+  `ensure_indexes`. Bump `INDEX_SCHEMA_VERSION` when they change (now 3). No ad-hoc scripts.
+  A replaced index goes into `OBSOLETE_INDEX_NAMES`, which `ensure_indexes` drops. Every read
+  filter has a `(field, createdAt -1, _id -1)` index (plus `(createdAt -1, _id -1)`), so list
+  queries never sort in memory; keep that true for any new filter (checked with `explain()`).
 - Mapping (`infrastructure/repositories/*`): UUIDs as strings, amounts as `Decimal128`
   (`Decimal` in the domain), timestamps as BSON dates truncated to milliseconds in the domain.
 - Duplicate-key errors are mapped narrowly: only the `keyPattern` of the expected unique index
@@ -176,11 +187,10 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
   before producing it.
 - Names describe behaviour: `test_should_..._when_...`.
 - Coverage: `--cov-fail-under=80` on `src/notifications/domain` and `src/notifications/application`.
-- **Component tests and the read API (constitution VII, v1.1.0):** until the read API exists,
-  component tests assert the stored notification directly in MongoDB. **US-04 MUST**, in the same
-  change set, extend every existing component test (`tests/component/test_order_placed_flow.py`,
-  `tests/component/test_order_status_flow.py`, …) so each recorded notification is also read back
-  through `GET /notifications/{id}`.
+- **Component tests and the read API (constitution VII, v1.1.0):** the read API exists, so every
+  component test that records a notification MUST also read it back over HTTP with
+  `tests/support/app.py::assert_readable_over_http` (a document) or
+  `assert_stored_readable_over_http` (a query).
 
 ## Branches and commits
 
@@ -222,3 +232,8 @@ US-03: `payments.payment-refunded` → `messaging/payment_refunded.py` (`parse_p
 order = `orderId`) → `application/record_payment_refunded.py` (`RecordPaymentRefundedService`:
 `OrderContextRepository.get` → `OrderContextNotFoundError` or `Notification.payment_refunded` →
 `record_and_send`). Spec and design: `specs/003-payment-refunded-notification/`.
+
+US-04: `GET /notifications[/{id}]` → `api/notifications.py` → `NotificationQueryService`
+(`application/query_notifications.py`) → `MongoNotificationRepository.find_page` / `count` /
+`find_by_id`; handlers in `api/errors.py`; indexes v3. Spec and design:
+`specs/004-notifications-read-api/`.

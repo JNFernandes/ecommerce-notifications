@@ -4,9 +4,11 @@ from datetime import datetime
 from typing import cast
 from uuid import UUID
 
+from pymongo import DESCENDING
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import DuplicateKeyError
 
+from notifications.application.query_notifications import NotificationFilters
 from notifications.domain.notification import (
     Notification,
     NotificationChannel,
@@ -76,3 +78,39 @@ class MongoNotificationRepository:
                 return False
             raise
         return True
+
+    async def find_page(
+        self, filters: NotificationFilters, limit: int, offset: int
+    ) -> list[Notification]:
+        """Return up to ``limit`` matching notifications after ``offset``, newest first.
+
+        Sorted by ``createdAt`` then ``_id``, both descending; the read indexes of schema
+        version 3 serve this order, so MongoDB never sorts in memory.
+        """
+        cursor = self._collection.find(_query(filters)).sort(NEWEST_FIRST).skip(offset).limit(limit)
+        return [from_document(document) async for document in cursor]
+
+    async def count(self, filters: NotificationFilters) -> int:
+        """Return the exact number of notifications matching ``filters``."""
+        return await self._collection.count_documents(_query(filters))
+
+    async def find_by_id(self, notification_id: UUID) -> Notification | None:
+        """Return the notification with this id, or ``None``."""
+        document = await self._collection.find_one({"_id": str(notification_id)})
+        return None if document is None else from_document(document)
+
+
+NEWEST_FIRST: list[tuple[str, int]] = [("createdAt", DESCENDING), ("_id", DESCENDING)]
+"""Read API order: creation time descending, id descending as tie-break."""
+
+
+def _query(filters: NotificationFilters) -> MongoDocument:
+    """Build the MongoDB filter: every given filter must match (AND)."""
+    query: MongoDocument = {}
+    if filters.customer_id is not None:
+        query["customerId"] = str(filters.customer_id)
+    if filters.order_id is not None:
+        query["orderId"] = str(filters.order_id)
+    if filters.type is not None:
+        query["type"] = filters.type.value
+    return query
