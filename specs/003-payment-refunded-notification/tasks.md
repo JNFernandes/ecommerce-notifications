@@ -178,7 +178,7 @@ context's customer, then the send log line.
   - `tests/unit/infrastructure/test_settings.py`: the default; an environment override; equal to
     an order topic → error naming `kafka_topic_payment_refunded`;
   - `tests/unit/test_main_routes.py`: the four topics, in order. Gate.
-- [ ] T010 [US1] Component test in the new `tests/component/test_payment_refunded_flow.py`:
+- [X] T010 [US1] Component test in the new `tests/component/test_payment_refunded_flow.py`:
   - fixture: `create_consumed_topics` and `run_app(component_settings(...))`;
   - produce an `orders.order-placed` event, `eventually` its `order_context` exists, then produce
     a refund for the same `orderId` (a different `aggregateId`);
