@@ -49,5 +49,10 @@ async def test_should_publish_the_health_endpoints_in_the_openapi_document(
 ) -> None:
     paths = (await client.get("/openapi.json")).json()["paths"]
 
-    assert set(paths) == {"/health/live", "/health/ready", "/notifications"}
+    assert set(paths) == {
+        "/health/live",
+        "/health/ready",
+        "/notifications",
+        "/notifications/{notification_id}",
+    }
     assert paths["/health/ready"]["get"]["description"]

@@ -11,6 +11,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from pymongo.errors import PyMongoError
 
+from notifications.application.errors import NotificationNotFoundError
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +31,13 @@ async def database_unavailable(request: Request, exc: Exception) -> Response:
     return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=body.model_dump())
 
 
+async def notification_not_found(request: Request, exc: Exception) -> Response:
+    """Answer 404 for an unknown notification id."""
+    body = ErrorResponse(detail=str(exc))
+    return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content=body.model_dump())
+
+
 def register_error_handlers(app: FastAPI) -> None:
     """Register the API exception handlers on ``app``."""
+    app.add_exception_handler(NotificationNotFoundError, notification_not_found)
     app.add_exception_handler(PyMongoError, database_unavailable)

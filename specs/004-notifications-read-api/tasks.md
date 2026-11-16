@@ -153,7 +153,7 @@ filters, the service receives them.
 **Independent Test**: Fetching an existing id gives 200 with all fields; a well-formed unknown id
 gives 404 `{"detail": "notification <id> not found"}`.
 
-- [ ] T005 [US2] In `src/notifications/api/notifications.py`, add
+- [X] T005 [US2] In `src/notifications/api/notifications.py`, add
   `GET /notifications/{notification_id}` (`Path` with a description; `responses` documents 404,
   422 and 503), which calls `service.get(...)` once. In `src/notifications/api/errors.py`, add the
   `NotificationNotFoundError` → 404 handler returning `ErrorResponse(detail=str(error))`. The

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Self
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from notifications.api.errors import ErrorResponse
@@ -123,3 +123,26 @@ async def list_notifications(
         limit=page.limit,
         offset=page.offset,
     )
+
+
+@router.get(
+    "/{notification_id}",
+    summary="Get one notification",
+    description="The notification with this id.",
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "model": ErrorResponse,
+            "description": "No notification has this id.",
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ErrorResponse,
+            "description": "The database is unreachable.",
+        },
+    },
+)
+async def get_notification(
+    service: QueryServiceDependency,
+    notification_id: Annotated[UUID, Path(description="Id of the notification.")],
+) -> NotificationResponse:
+    """Return one notification, or 404 when it does not exist."""
+    return NotificationResponse.from_domain(await service.get(notification_id))

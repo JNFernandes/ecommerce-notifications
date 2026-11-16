@@ -110,3 +110,26 @@ async def test_should_answer_503_when_the_database_is_unreachable() -> None:
 
     assert response.status_code == 503
     assert response.json() == {"detail": "database unavailable"}
+
+
+async def test_should_return_one_notification_by_id(
+    client: AsyncClient, reader: FakeNotificationReader
+) -> None:
+    wanted = reader.notifications[1]
+
+    response = await client.get(f"/notifications/{wanted.id}")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(wanted.id)
+    assert response.json()["message"] == wanted.message
+
+
+async def test_should_answer_404_with_the_standard_body_for_an_unknown_id(
+    client: AsyncClient,
+) -> None:
+    missing = uuid4()
+
+    response = await client.get(f"/notifications/{missing}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": f"notification {missing} not found"}
