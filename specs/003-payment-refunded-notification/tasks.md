@@ -66,7 +66,7 @@ prerequisites come first (Phases 1–2), each in that layer order.
 
 **⚠️ CRITICAL**: No user story work starts before this phase is complete.
 
-- [ ] T003 [P] Domain errors and amounts, in `src/notifications/domain/errors.py` and
+- [X] T003 [P] Domain errors and amounts, in `src/notifications/domain/errors.py` and
   `src/notifications/domain/messages.py`:
   - add `InvalidAmountError(DomainError)`, make `InvalidOrderTotalError(InvalidAmountError)`, and
     add `InvalidCurrencyError(DomainError)`;

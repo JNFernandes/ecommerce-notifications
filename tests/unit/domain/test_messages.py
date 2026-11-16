@@ -5,7 +5,7 @@ from uuid import UUID
 
 import pytest
 
-from notifications.domain.errors import InvalidOrderTotalError
+from notifications.domain.errors import InvalidAmountError, InvalidOrderTotalError
 from notifications.domain.messages import (
     MAX_REASON_LENGTH,
     format_amount,
@@ -37,8 +37,17 @@ def test_should_write_the_amount_with_two_decimals_rounded_half_up(
 
 @pytest.mark.parametrize("amount", ["-0.01", "NaN", "Infinity"])
 def test_should_reject_a_negative_or_non_finite_amount(amount: str) -> None:
-    with pytest.raises(InvalidOrderTotalError):
+    with pytest.raises(InvalidAmountError):
         format_amount(Decimal(amount))
+
+
+def test_should_still_report_an_invalid_order_total_as_such() -> None:
+    with pytest.raises(InvalidOrderTotalError):
+        order_received_message(ORDER_ID, Decimal("-1"))
+
+
+def test_should_treat_an_invalid_order_total_as_an_invalid_amount() -> None:
+    assert issubclass(InvalidOrderTotalError, InvalidAmountError)
 
 
 def test_should_build_the_order_received_text_from_the_template() -> None:
