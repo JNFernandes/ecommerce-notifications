@@ -9,7 +9,7 @@ from testcontainers.community.kafka import KafkaContainer
 
 from tests.support.app import RunningApp, component_settings, run_app
 from tests.support.events import order_placed_payload, to_json_bytes
-from tests.support.kafka import create_order_topics, pause_kafka, produce, unpause_kafka
+from tests.support.kafka import create_consumed_topics, pause_kafka, produce, unpause_kafka
 from tests.support.polling import eventually
 
 pytestmark = pytest.mark.component
@@ -35,7 +35,7 @@ async def _produce_and_wait_for_notification(app: RunningApp, kafka_bootstrap: s
 async def test_should_start_without_kafka_and_catch_up_once_it_is_back(
     mongodb_url: str, kafka_bootstrap: str, kafka_container: KafkaContainer
 ) -> None:
-    await create_order_topics(kafka_bootstrap)
+    await create_consumed_topics(kafka_bootstrap)
     settings = component_settings(mongodb_url, kafka_bootstrap)
     pause_kafka(kafka_container)
     try:
@@ -61,7 +61,7 @@ async def test_should_start_without_kafka_and_catch_up_once_it_is_back(
 async def test_should_stay_ready_during_an_outage_and_reconnect_by_itself(
     mongodb_url: str, kafka_bootstrap: str, kafka_container: KafkaContainer
 ) -> None:
-    await create_order_topics(kafka_bootstrap)
+    await create_consumed_topics(kafka_bootstrap)
     settings = component_settings(mongodb_url, kafka_bootstrap)
     async with run_app(settings, kafka_check_interval_seconds=1.0) as app:
         await eventually(

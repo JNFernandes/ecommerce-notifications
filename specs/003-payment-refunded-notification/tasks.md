@@ -48,7 +48,7 @@ prerequisites come first (Phases 1–2), each in that layer order.
   - `MISSING` removes a key.
 
   No test uses it yet. Gate.
-- [ ] T002 [P] In `tests/support/kafka.py`, rename `ORDER_TOPICS` to `CONSUMED_TOPICS`, add
+- [X] T002 [P] In `tests/support/kafka.py`, rename `ORDER_TOPICS` to `CONSUMED_TOPICS`, add
   `"payments.payment-refunded"`, and rename `create_order_topics` to `create_consumed_topics`
   (same behaviour). Update every caller:
   - `tests/component/test_order_placed_flow.py`

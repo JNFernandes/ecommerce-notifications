@@ -15,7 +15,7 @@ from tests.support.events import (
     order_status_payload,
     to_json_bytes,
 )
-from tests.support.kafka import committed_offset, create_order_topics, produce
+from tests.support.kafka import committed_offset, create_consumed_topics, produce
 from tests.support.polling import eventually
 
 pytestmark = pytest.mark.component
@@ -28,7 +28,7 @@ type Document = dict[str, object]
 @pytest.fixture
 async def app(mongodb_url: str, kafka_bootstrap: str) -> AsyncIterator[RunningApp]:
     """The application, connected to the test broker and a fresh database."""
-    await create_order_topics(kafka_bootstrap)
+    await create_consumed_topics(kafka_bootstrap)
     async with run_app(component_settings(mongodb_url, kafka_bootstrap)) as running:
         yield running
 
@@ -131,7 +131,7 @@ async def test_should_record_one_notification_when_a_confirmation_is_delivered_t
 @pytest.fixture
 async def fast_retry_app(mongodb_url: str, kafka_bootstrap: str) -> AsyncIterator[RunningApp]:
     """The application with fast retries, so a failing message cannot slow the test down."""
-    await create_order_topics(kafka_bootstrap)
+    await create_consumed_topics(kafka_bootstrap)
     settings = component_settings(
         mongodb_url,
         kafka_bootstrap,
