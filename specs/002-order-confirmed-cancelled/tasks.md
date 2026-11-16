@@ -305,7 +305,7 @@ processed; one consumer for all three topics.
     `messaging/events.py`, domain reason normalisation, topic settings, generic duplicate log;
   - extend "Where things are" with US-02;
   - remove "Active feature". Gate.
-- [ ] T024 [P] In the ecommerce-infra repository, on branch
+- [X] T024 [P] In the ecommerce-infra repository, on branch
   `docs/notifications-consumes-order-status`, update `docs/events.md` (research R8):
   - in the Topics table, the Notifications consumer of `orders.order-confirmed` and
     `orders.order-cancelled` becomes implemented;
