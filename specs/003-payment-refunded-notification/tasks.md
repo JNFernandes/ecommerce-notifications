@@ -149,7 +149,7 @@ context's customer, then the send log line.
   - `currency` `"eur"` / `"EURO"` / `123`;
   - naive `refundedAt`;
   - bad JSON. Gate.
-- [ ] T008 [US1] Application with the typed retryable error (depends on T005, T006, T007):
+- [X] T008 [US1] Application with the typed retryable error (depends on T005, T006, T007):
   - create `src/notifications/application/errors.py` with
     `OrderContextNotFoundError(Exception)`: an `order_id` attribute, the message
     `no order context for order <order_id>`, and a docstring saying it is retryable because the

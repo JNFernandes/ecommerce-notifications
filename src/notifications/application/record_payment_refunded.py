@@ -8,6 +8,17 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
+from notifications.application.errors import OrderContextNotFoundError
+from notifications.application.ports import (
+    Clock,
+    IdGenerator,
+    NotificationRepository,
+    NotificationSender,
+    OrderContextRepository,
+)
+from notifications.application.recording import RecordOutcome, record_and_send
+from notifications.domain.notification import Notification
+
 
 @dataclass(frozen=True, slots=True)
 class PaymentRefundedCommand:
@@ -18,3 +29,46 @@ class PaymentRefundedCommand:
     """The event's ``orderId`` (never ``aggregateId``, which is the payment id)."""
     amount: Decimal
     currency: str
+
+
+class RecordPaymentRefundedService:
+    """Records the ``PAYMENT_REFUNDED`` notification for the customer of the refunded order."""
+
+    def __init__(
+        self,
+        order_contexts: OrderContextRepository,
+        notifications: NotificationRepository,
+        sender: NotificationSender,
+        clock: Clock,
+        ids: IdGenerator,
+    ) -> None:
+        """Create the service from its ports."""
+        self._order_contexts = order_contexts
+        self._notifications = notifications
+        self._sender = sender
+        self._clock = clock
+        self._ids = ids
+
+    async def handle(self, command: PaymentRefundedCommand) -> RecordOutcome:
+        """Find the order's customer, then store and send the notification.
+
+        Never writes an order context and never stores a notification without a customer.
+
+        Raises:
+            OrderContextNotFoundError: if no order context exists for ``command.order_id``
+                (retryable: the consumer retries, then dead-letters the message).
+            Exception: any repository failure, unchanged, so that the consumer can retry.
+        """
+        context = await self._order_contexts.get(command.order_id)
+        if context is None:
+            raise OrderContextNotFoundError(command.order_id)
+        notification = Notification.payment_refunded(
+            notification_id=self._ids.new_id(),
+            customer_id=context.customer_id,
+            order_id=command.order_id,
+            amount=command.amount,
+            currency=command.currency,
+            source_event_id=command.event_id,
+            now=self._clock.now(),
+        )
+        return await record_and_send(notification, self._notifications, self._sender)
