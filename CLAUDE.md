@@ -206,3 +206,15 @@ US-02: `orders.order-confirmed` / `orders.order-cancelled` → `messaging/order_
 `application/recording.py::record_and_send` (store, then send; duplicates log
 `Event already recorded: type=… sourceEvent=… order=…`). Spec and design:
 `specs/002-order-confirmed-cancelled/`.
+
+## Active feature
+
+US-03 payment refunded: `specs/003-payment-refunded-notification/` (plan, research R1–R9).
+Key decisions while implementing:
+- The order is `orderId`; `aggregateId` is the payment id and is never used as the order.
+- Customer only from `OrderContextRepository.get(order_id)`; missing → raise
+  `application/errors.py::OrderContextNotFoundError` (retryable: the processor retries, then
+  dead-letters). Never store a refund notification without a customer.
+- `messaging/events.py` gets a generic `EventEnvelope`; `OrderEventEnvelope` extends it.
+- Component tests: wait for the order context before producing the refund; the test topics list
+  must include `payments.payment-refunded`.
