@@ -28,7 +28,11 @@ def _table(settings: Settings) -> tuple[str, ...]:
 
 
 def test_should_route_every_consumed_order_topic_with_the_default_names() -> None:
-    assert _table(Settings(_env_file=None)) == ("orders.order-placed", "orders.order-confirmed")
+    assert _table(Settings(_env_file=None)) == (
+        "orders.order-placed",
+        "orders.order-confirmed",
+        "orders.order-cancelled",
+    )
 
 
 def test_should_route_the_topic_names_given_in_the_settings() -> None:

@@ -24,7 +24,7 @@ from notifications.infrastructure.settings import Settings
 from notifications.infrastructure.system import SystemClock, Uuid4Generator
 from notifications.messaging.consumer_manager import KafkaConsumerManager
 from notifications.messaging.order_placed import parse_order_placed
-from notifications.messaging.order_status import parse_order_confirmed
+from notifications.messaging.order_status import parse_order_cancelled, parse_order_confirmed
 from notifications.messaging.processor import RetryingMessageProcessor
 from notifications.messaging.retry import RetryPolicy, StopAwareSleeper
 from notifications.messaging.routing import Route, RoutingTable
@@ -57,6 +57,11 @@ def build_routing_table(
                 settings.kafka_topic_order_confirmed,
                 parse_order_confirmed,
                 record_order_status.record_confirmed,
+            ),
+            Route(
+                settings.kafka_topic_order_cancelled,
+                parse_order_cancelled,
+                record_order_status.record_cancelled,
             ),
         ]
     )

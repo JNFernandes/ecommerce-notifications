@@ -244,7 +244,7 @@ exist with the exact two messages.
   - without a reason → generic message;
   - a duplicate → not sent;
   - a repository error propagates. Gate.
-- [ ] T016 [US2] Routing registration (depends on T015): in `src/notifications/main.py`
+- [X] T016 [US2] Routing registration (depends on T015): in `src/notifications/main.py`
   (`build_routing_table`), add
   `Route(settings.kafka_topic_order_cancelled, parse_order_cancelled, record_order_status.record_cancelled)`.
   Update the routing-table test: exactly the three order topics. Gate.
