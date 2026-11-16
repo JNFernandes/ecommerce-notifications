@@ -4,7 +4,12 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from tests.support.app import RunningApp, component_settings, run_app
+from tests.support.app import (
+    RunningApp,
+    assert_stored_readable_over_http,
+    component_settings,
+    run_app,
+)
 from tests.support.events import MISSING, order_placed_payload, to_json_bytes
 from tests.support.kafka import committed_offset, create_consumed_topics, produce
 from tests.support.polling import eventually
@@ -61,3 +66,4 @@ async def test_should_dead_letter_invalid_messages_and_still_process_the_next_va
         await app.database["notifications"].count_documents({"sourceEventId": valid["eventId"]})
         == 1
     )
+    await assert_stored_readable_over_http(app, {"sourceEventId": valid["eventId"]})

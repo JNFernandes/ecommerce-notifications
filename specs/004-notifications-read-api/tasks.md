@@ -218,7 +218,7 @@ reads work with the broker paused.
 
 ## Phase 6: Constitution VII catch-up and polish
 
-- [ ] T010 FR-017 / constitution VII (v1.1.0). In `tests/support/app.py`, add
+- [X] T010 FR-017 / constitution VII (v1.1.0). In `tests/support/app.py`, add
   `assert_readable_over_http(app, document)`. It runs `GET /notifications/{document["_id"]}` and
   asserts 200, with a body equal to the stored document mapped to the API shape (`id` = `_id`,
   every other field identical, and `createdAt` the same instant).

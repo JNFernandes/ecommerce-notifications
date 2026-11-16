@@ -6,7 +6,13 @@ from uuid import uuid4
 
 import pytest
 
-from tests.support.app import RunningApp, component_settings, run_app
+from tests.support.app import (
+    RunningApp,
+    assert_readable_over_http,
+    assert_stored_readable_over_http,
+    component_settings,
+    run_app,
+)
 from tests.support.events import (
     MISSING,
     ORDER_CANCELLED_TOPIC,
@@ -60,6 +66,7 @@ async def test_should_record_an_order_confirmed_notification_for_a_confirmation(
     await produce(kafka_bootstrap, ORDER_CONFIRMED_TOPIC, to_json_bytes(payload))
 
     [notification] = await _notifications_for(app, payload["eventId"])
+    await assert_readable_over_http(app, notification)
     assert notification["type"] == "ORDER_CONFIRMED"
     assert (notification["channel"], notification["status"]) == ("email", "SENT")
     assert notification["customerId"] == payload["customerId"]
@@ -82,6 +89,8 @@ async def test_should_record_order_cancelled_notifications_with_and_without_a_re
 
     [first] = await _notifications_for(app, with_reason["eventId"])
     [second] = await _notifications_for(app, without_reason["eventId"])
+    await assert_readable_over_http(app, first)
+    await assert_readable_over_http(app, second)
     assert first["type"] == second["type"] == "ORDER_CANCELLED"
     assert first["message"] == (
         f"Your order {with_reason['aggregateId']} was cancelled: "
@@ -114,6 +123,7 @@ async def test_should_record_one_notification_when_a_confirmation_is_delivered_t
         await app.database["notifications"].find({"sourceEventId": payload["eventId"]}).to_list()
     )
     assert len(notifications) == 1
+    await assert_readable_over_http(app, notifications[0])
     assert len(_send_lines(caplog, notifications[0]["_id"])) == 1
     # The topic is shared by all component tests: only this test's offsets are relevant.
     assert (
@@ -194,6 +204,7 @@ async def test_should_dead_letter_invalid_cancellations_and_process_the_next_val
         await app.database["notifications"].count_documents({"sourceEventId": valid["eventId"]})
         == 1
     )
+    await assert_stored_readable_over_http(app, {"sourceEventId": valid["eventId"]})
 
 
 async def test_should_serve_all_order_topics_with_one_consumer_and_no_placement_needed(
@@ -211,6 +222,8 @@ async def test_should_serve_all_order_topics_with_one_consumer_and_no_placement_
     [confirmation] = await _notifications_for(app, confirmed["eventId"])
     [cancellation] = await _notifications_for(app, cancelled["eventId"])
     [received] = await _notifications_for(app, placed["eventId"])
+    for stored in (confirmation, cancellation, received):
+        await assert_readable_over_http(app, stored)
     assert (confirmation["type"], cancellation["type"], received["type"]) == (
         "ORDER_CONFIRMED",
         "ORDER_CANCELLED",

@@ -7,7 +7,12 @@ bootstrap setting stays valid. Every test unpauses the broker in ``finally``.
 import pytest
 from testcontainers.community.kafka import KafkaContainer
 
-from tests.support.app import RunningApp, component_settings, run_app
+from tests.support.app import (
+    RunningApp,
+    assert_stored_readable_over_http,
+    component_settings,
+    run_app,
+)
 from tests.support.events import order_placed_payload, to_json_bytes
 from tests.support.kafka import create_consumed_topics, pause_kafka, produce, unpause_kafka
 from tests.support.polling import eventually
@@ -30,6 +35,7 @@ async def _produce_and_wait_for_notification(app: RunningApp, kafka_bootstrap: s
         timeout_seconds=OUTAGE_TIMEOUT_SECONDS,
         description="the notification of an event produced after the outage",
     )
+    await assert_stored_readable_over_http(app, {"sourceEventId": payload["eventId"]})
 
 
 async def test_should_start_without_kafka_and_catch_up_once_it_is_back(

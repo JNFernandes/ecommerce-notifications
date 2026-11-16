@@ -7,7 +7,12 @@ from datetime import datetime
 import pytest
 from bson.decimal128 import Decimal128
 
-from tests.support.app import RunningApp, component_settings, run_app
+from tests.support.app import (
+    RunningApp,
+    assert_readable_over_http,
+    component_settings,
+    run_app,
+)
 from tests.support.events import order_placed_payload, to_json_bytes
 from tests.support.kafka import committed_offset, create_consumed_topics, produce
 from tests.support.polling import eventually
@@ -50,6 +55,7 @@ async def test_should_record_an_order_received_notification_for_a_placed_order(
         description="the order received notification",
     )
     [notification] = notifications
+    await assert_readable_over_http(app, notification)
     assert notification["customerId"] == payload["customerId"]
     assert notification["sourceEventId"] == payload["eventId"]
     assert (notification["type"], notification["channel"], notification["status"]) == (
@@ -90,6 +96,7 @@ async def test_should_record_one_notification_when_the_same_event_is_delivered_t
         await app.database["notifications"].find({"sourceEventId": payload["eventId"]}).to_list()
     )
     assert len(notifications) == 1
+    await assert_readable_over_http(app, notifications[0])
     assert len(_send_lines(caplog, notifications[0]["_id"])) == 1
     # The topic is shared by all component tests: only this test's offsets are relevant.
     assert (

@@ -5,7 +5,12 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from tests.support.app import RunningApp, component_settings, run_app
+from tests.support.app import (
+    RunningApp,
+    assert_readable_over_http,
+    component_settings,
+    run_app,
+)
 from tests.support.events import (
     MISSING,
     ORDER_CANCELLED_TOPIC,
@@ -72,6 +77,7 @@ async def test_should_record_the_refund_for_the_customer_of_the_placed_order(
     await produce(kafka_bootstrap, PAYMENT_REFUNDED_TOPIC, to_json_bytes(refund))
 
     [notification] = await _notifications_for(app, refund["eventId"])
+    await assert_readable_over_http(app, notification)
     assert notification["type"] == "PAYMENT_REFUNDED"
     assert notification["customerId"] == placed["customerId"]
     assert notification["orderId"] == placed["aggregateId"]
@@ -156,6 +162,7 @@ async def test_should_record_one_notification_when_a_refund_is_delivered_twice(
         await app.database["notifications"].find({"sourceEventId": refund["eventId"]}).to_list()
     )
     assert len(notifications) == 1
+    await assert_readable_over_http(app, notifications[0])
     assert len(_send_lines(caplog, notifications[0]["_id"])) == 1
     assert (
         await app.database["inbound_dead_letters"].count_documents(
@@ -182,7 +189,8 @@ async def test_should_dead_letter_an_invalid_refund_and_process_the_next_one(
     )
     await produce(kafka_bootstrap, PAYMENT_REFUNDED_TOPIC, to_json_bytes(valid), key=key)
 
-    await _notifications_for(app, valid["eventId"])
+    [recorded] = await _notifications_for(app, valid["eventId"])
+    await assert_readable_over_http(app, recorded)
     dead_letter = await app.database["inbound_dead_letters"].find_one(
         {"topic": PAYMENT_REFUNDED_TOPIC, "partition": partition, "offset": invalid_offset}
     )
@@ -216,5 +224,7 @@ async def test_should_serve_all_four_topics_for_one_order_with_one_consumer(
         "PAYMENT_REFUNDED",
     ]
     assert {d["customerId"] for d in found} == {customer_id}
+    for stored in found:
+        await assert_readable_over_http(app, stored)
     readiness = await app.readiness()
     assert readiness["kafka"] == "CONNECTED"
