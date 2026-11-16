@@ -238,7 +238,7 @@ reads work with the broker paused.
   - an "Indexes" subsection listing all v3 indexes and what each serves;
   - `CORS_ALLOWED_ORIGINS` with an example frontend origin;
   - a notice: **no authentication, for local and demo use only**. Gate.
-- [ ] T012 [P] Update `CLAUDE.md`:
+- [X] T012 [P] Update `CLAUDE.md`:
   - make the "Active feature" notes permanent rules (read path layers; 404/503 handlers in
     `api/errors.py`; indexes v3 with `OBSOLETE_INDEX_NAMES`; the read-back helper for every new
     component test);
