@@ -15,3 +15,12 @@ class OrderContextNotFoundError(Exception):
         """Create the error for ``order_id``."""
         super().__init__(f"no order context for order {order_id}")
         self.order_id = order_id
+
+
+class NotificationNotFoundError(Exception):
+    """No notification exists with the requested id (mapped to 404 by the API layer)."""
+
+    def __init__(self, notification_id: UUID) -> None:
+        """Create the error for ``notification_id``."""
+        super().__init__(f"notification {notification_id} not found")
+        self.notification_id = notification_id

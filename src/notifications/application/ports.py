@@ -4,11 +4,14 @@ Adapters live in ``notifications.infrastructure`` and are wired in ``notificatio
 """
 
 from datetime import datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
 from notifications.domain.notification import Notification
 from notifications.domain.order_context import OrderContext
+
+if TYPE_CHECKING:
+    from notifications.application.query_notifications import NotificationFilters
 
 
 class Clock(Protocol):
@@ -61,4 +64,25 @@ class OrderContextRepository(Protocol):
 
     async def get(self, order_id: UUID) -> OrderContext | None:
         """Return the context recorded for ``order_id``, or ``None`` if there is none yet."""
+        ...
+
+
+class NotificationReader(Protocol):
+    """Reads stored notifications for the read API (newest first, id as tie-break)."""
+
+    async def find_page(
+        self, filters: "NotificationFilters", limit: int, offset: int
+    ) -> list[Notification]:
+        """Return up to ``limit`` matching notifications after skipping ``offset``.
+
+        Ordered by creation time descending, then id descending.
+        """
+        ...
+
+    async def count(self, filters: "NotificationFilters") -> int:
+        """Return how many notifications match ``filters``."""
+        ...
+
+    async def find_by_id(self, notification_id: UUID) -> Notification | None:
+        """Return the notification with this id, or ``None``."""
         ...

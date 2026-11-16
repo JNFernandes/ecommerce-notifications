@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from notifications.application.health import ConsumerState
+from notifications.application.query_notifications import NotificationFilters
 from notifications.domain.notification import Notification
 from notifications.domain.order_context import OrderContext
 from notifications.messaging.dead_letters import DeadLetter
@@ -223,3 +224,46 @@ class LateOrderContextRepository:
         if self.calls <= self._missing_calls or order_id != self._context.order_id:
             return None
         return self._context
+
+
+class FakeNotificationReader:
+    """In-memory NotificationReader with the same order and filtering as the Mongo repository."""
+
+    def __init__(
+        self, notifications: list[Notification] | None = None, *, error: Exception | None = None
+    ) -> None:
+        """Serve ``notifications``; raise ``error`` on every call when given."""
+        self.notifications = list(notifications or [])
+        self.calls: list[tuple[str, object]] = []
+        self._error = error
+
+    def _matching(self, filters: NotificationFilters) -> list[Notification]:
+        if self._error is not None:
+            raise self._error
+        found = [
+            n
+            for n in self.notifications
+            if (filters.customer_id is None or n.customer_id == filters.customer_id)
+            and (filters.order_id is None or n.order_id == filters.order_id)
+            and (filters.type is None or n.type is filters.type)
+        ]
+        return sorted(found, key=lambda n: (n.created_at, str(n.id)), reverse=True)
+
+    async def find_page(
+        self, filters: NotificationFilters, limit: int, offset: int
+    ) -> list[Notification]:
+        """Return the page, newest first."""
+        self.calls.append(("find_page", (filters, limit, offset)))
+        return self._matching(filters)[offset : offset + limit]
+
+    async def count(self, filters: NotificationFilters) -> int:
+        """Return the number of matching notifications."""
+        self.calls.append(("count", filters))
+        return len(self._matching(filters))
+
+    async def find_by_id(self, notification_id: UUID) -> Notification | None:
+        """Return the notification with this id, if any."""
+        self.calls.append(("find_by_id", notification_id))
+        if self._error is not None:
+            raise self._error
+        return next((n for n in self.notifications if n.id == notification_id), None)

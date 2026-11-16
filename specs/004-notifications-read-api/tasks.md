@@ -33,7 +33,7 @@ documented, CORS, works without Kafka. They are inside the single backlog item U
 
 **⚠️ CRITICAL**: No user story work starts before this phase is complete.
 
-- [ ] T001 [P] Query service, through the port, the fake and its tests:
+- [X] T001 [P] Query service, through the port, the fake and its tests:
   - in `src/notifications/application/ports.py`, add the `NotificationReader` Protocol:
     `find_page(filters, limit, offset) -> list[Notification]` (newest first, `_id` tie-break),
     `count(filters) -> int`, `find_by_id(notification_id) -> Notification | None`;
