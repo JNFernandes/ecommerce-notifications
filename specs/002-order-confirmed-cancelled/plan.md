@@ -60,14 +60,14 @@ dead-lettered, one consumer with a routing table), and the planning input is res
 | IV | Notification integrity | Enum types `ORDER_CONFIRMED` / `ORDER_CANCELLED`; immutable; deterministic templates; the reason is included when present (constitution text); UTC timestamps; one notification per `sourceEventId`. | ✅ |
 | V | Types & validation | Frozen Pydantic models with field docstrings and JSON-type guards; typed `InvalidMessageError`; generic `Route[C]` keeps parser output and service input type-checked under mypy strict. | ✅ |
 | VI | Test coverage | Happy-path and edge tests for every new domain function, factory and service method. | ✅ |
-| VII | Testing strategy | Unit + integration (redelivery under the unique index) + component (real Kafka and MongoDB: each event, redelivery, invalid → dead letter); `eventually` / `wait_until` only. **Deviation**: component tests MUST cover "… → notification readable over HTTP", but the read API is US-04 and out of scope, so they assert on MongoDB for now. Justified in Complexity Tracking; closed by T025 and US-04. | ⚠ justified |
+| VII | Testing strategy | Unit + integration (redelivery under the unique index) + component (real Kafka and MongoDB: each event, redelivery, invalid → dead letter); `eventually` / `wait_until` only. Component tests assert the stored notification in MongoDB, as constitution v1.1.0 requires until the read API exists (US-04 adds the HTTP read assertion). Originally recorded as a justified deviation (analysis finding C1); resolved by the v1.1.0 amendment. | ✅ |
 | VIII | Kafka consumer | New topics with `aggregateId` = order id; unknown fields ignored; the same idempotency, commit, retry and dead-letter rules; a message on an unrouted topic is dead-lettered, not dropped; `events.md` updated in a linked PR (R8). | ✅ |
 | IX | Branching | `feature/US-02-order-confirmed-cancelled-notifications` from `main`; `feat(US-02)` / `test(US-02)` / `docs(US-02)` commits. | ✅ |
 | X | Gate | Four gate commands after every task; every commit green. | ✅ |
 | Stack / Docs | No dependency; no index change; README (topics table, settings), CLAUDE.md and `events.md` updated. No new ADR: the routing table is an internal refactor of the existing consumer (no new technology, no contract change). | ✅ |
 
-**Post-design re-check (after Phase 1)**: all ✅ except VII, a justified deviation (see Complexity
-Tracking). The behaviour visible to US-01 changes in two
+**Post-design re-check (after Phase 1)**: all ✅. VII was first recorded as a justified deviation
+and is resolved by constitution v1.1.0 (see Complexity Tracking). The behaviour visible to US-01 changes in two
 places:
 - the duplicate log text becomes the generic `Event already recorded: type=…` (contracts/observability.md);
 - `OrderPlacedHandler` is replaced by a route.
@@ -144,6 +144,8 @@ KafkaConsumerManager (subscribes to routing.topics)
 
 ## Complexity Tracking
 
-| Violation | Why needed | Simpler alternative rejected because |
-|-----------|------------|-------------------------------------|
-| Principle VII: component tests stop at "notification stored" and do not read it over HTTP. The same gap exists in US-01's component tests. | The read API (`GET /notifications`, `GET /notifications/{id}`) is US-04, which is explicitly out of scope for this story (clarification). Until it exists, there is no HTTP read to assert on. | Pulling a read endpoint into US-02 contradicts the agreed scope. Skipping the component tests loses the consume → store proof. **Closing the gap**: T025 records the obligation in CLAUDE.md, and US-04 MUST extend the US-01 and US-02 component tests with HTTP read assertions. The durable fix is a constitution PATCH amendment ("readable over HTTP once the read API exists"), to be decided separately. |
+No open constitution violations.
+
+| Violation | Resolution |
+|-----------|------------|
+| Principle VII (v1.0.0): component tests MUST read the notification back over HTTP, but the read API is US-04 (out of scope here); the same gap existed in US-01. | Resolved by constitution **v1.1.0** (2026-11-16): the HTTP read applies once the read API exists; until then component tests assert in MongoDB, and US-04 MUST extend every existing component test with the HTTP read assertion. |

@@ -165,11 +165,10 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
   from the earliest offset, so assert only on this test's events and offsets.
 - Names describe behaviour: `test_should_..._when_...`.
 - Coverage: `--cov-fail-under=80` on `src/notifications/domain` and `src/notifications/application`.
-- **Open obligation (constitution VII):** component tests MUST cover "… → notification readable
-  over HTTP", but the read API only arrives with US-04. Until then they assert on MongoDB (a
-  justified deviation, see `specs/002-order-confirmed-cancelled/plan.md` Complexity Tracking).
-  **US-04 MUST** extend `tests/component/test_order_placed_flow.py` and
-  `tests/component/test_order_status_flow.py` so every recorded notification is also read back
+- **Component tests and the read API (constitution VII, v1.1.0):** until the read API exists,
+  component tests assert the stored notification directly in MongoDB. **US-04 MUST**, in the same
+  change set, extend every existing component test (`tests/component/test_order_placed_flow.py`,
+  `tests/component/test_order_status_flow.py`, …) so each recorded notification is also read back
   through `GET /notifications/{id}`.
 
 ## Branches and commits
