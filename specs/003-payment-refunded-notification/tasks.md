@@ -40,7 +40,7 @@ prerequisites come first (Phases 1–2), each in that layer order.
 
 **Purpose**: Test helpers for the refund topic. No production change.
 
-- [ ] T001 [P] In `tests/support/events.py`, add `PAYMENT_REFUNDED_TOPIC = "payments.payment-refunded"`
+- [X] T001 [P] In `tests/support/events.py`, add `PAYMENT_REFUNDED_TOPIC = "payments.payment-refunded"`
   and `payment_refunded_payload(**overrides) -> dict[str, object]`. It returns a valid refund:
   - fresh `eventId`, `aggregateId` (the payment id) and `orderId`, with `aggregateId != orderId`;
   - `occurredAt` and `refundedAt` as ISO 8601 with `+00:00`;
