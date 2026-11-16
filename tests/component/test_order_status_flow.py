@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import AsyncIterator
+from uuid import uuid4
 
 import pytest
 
@@ -10,6 +11,7 @@ from tests.support.events import (
     MISSING,
     ORDER_CANCELLED_TOPIC,
     ORDER_CONFIRMED_TOPIC,
+    order_placed_payload,
     order_status_payload,
     to_json_bytes,
 )
@@ -17,6 +19,8 @@ from tests.support.kafka import committed_offset, create_order_topics, produce
 from tests.support.polling import eventually
 
 pytestmark = pytest.mark.component
+
+ORDER_PLACED_TOPIC = "orders.order-placed"
 
 type Document = dict[str, object]
 
@@ -190,3 +194,30 @@ async def test_should_dead_letter_invalid_cancellations_and_process_the_next_val
         await app.database["notifications"].count_documents({"sourceEventId": valid["eventId"]})
         == 1
     )
+
+
+async def test_should_serve_all_order_topics_with_one_consumer_and_no_placement_needed(
+    app: RunningApp, kafka_bootstrap: str
+) -> None:
+    order_id = str(uuid4())
+    confirmed = order_status_payload(aggregateId=order_id)
+    cancelled = order_status_payload(aggregateId=order_id, reason="payment failed")
+    placed = order_placed_payload()
+
+    await produce(kafka_bootstrap, ORDER_CONFIRMED_TOPIC, to_json_bytes(confirmed))
+    await produce(kafka_bootstrap, ORDER_CANCELLED_TOPIC, to_json_bytes(cancelled))
+    await produce(kafka_bootstrap, ORDER_PLACED_TOPIC, to_json_bytes(placed))
+
+    [confirmation] = await _notifications_for(app, confirmed["eventId"])
+    [cancellation] = await _notifications_for(app, cancelled["eventId"])
+    [received] = await _notifications_for(app, placed["eventId"])
+    assert (confirmation["type"], cancellation["type"], received["type"]) == (
+        "ORDER_CONFIRMED",
+        "ORDER_CANCELLED",
+        "ORDER_RECEIVED",
+    )
+    assert confirmation["orderId"] == cancellation["orderId"] == order_id
+    assert await app.database["order_context"].count_documents({"_id": order_id}) == 0
+    readiness = await app.readiness()
+    assert readiness["kafka"] == "CONNECTED"
+    assert set(readiness) == {"status", "mongodb", "kafka"}

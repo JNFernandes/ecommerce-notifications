@@ -281,7 +281,7 @@ processed; one consumer for all three topics.
   - two dead letters with `attempts == 1`, `topic == "orders.order-cancelled"` and the expected
     reasons;
   - one notification for the valid one. Gate.
-- [ ] T021 [US3] Component test in `tests/component/test_order_status_flow.py`, independence and
+- [X] T021 [US3] Component test in `tests/component/test_order_status_flow.py`, independence and
   one consumer:
   - produce a confirmation and a cancellation for an order whose placement was never produced →
     both notifications recorded;
