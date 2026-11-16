@@ -262,7 +262,7 @@ one order.
 
 ## Phase 6: Polish & documentation
 
-- [ ] T015 [P] Update `README.md`:
+- [X] T015 [P] Update `README.md`:
   - status line;
   - in the Consumed topics table, the `payments.payment-refunded` row becomes implemented
     (US-03), with the message and "customer from the `OrderContext` by `orderId`";
