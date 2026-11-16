@@ -6,7 +6,11 @@ from uuid import UUID
 import pytest
 
 from notifications.domain.errors import InvalidOrderTotalError
-from notifications.domain.messages import format_amount, order_received_message
+from notifications.domain.messages import (
+    format_amount,
+    order_confirmed_message,
+    order_received_message,
+)
 
 ORDER_ID = UUID("0d1e2f3a-0000-4000-8000-0000000000aa")
 
@@ -44,3 +48,14 @@ def test_should_produce_the_same_text_for_the_same_input() -> None:
     assert order_received_message(ORDER_ID, Decimal("5")) == order_received_message(
         ORDER_ID, Decimal("5.00")
     )
+
+
+def test_should_build_the_order_confirmed_text_from_the_template() -> None:
+    assert (
+        order_confirmed_message(ORDER_ID)
+        == "Your order 0d1e2f3a-0000-4000-8000-0000000000aa was confirmed."
+    )
+
+
+def test_should_produce_the_same_confirmed_text_every_time() -> None:
+    assert order_confirmed_message(ORDER_ID) == order_confirmed_message(ORDER_ID)

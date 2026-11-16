@@ -27,3 +27,8 @@ def format_amount(amount: Decimal) -> str:
 def order_received_message(order_id: UUID, total_amount: Decimal) -> str:
     """Text of the ``ORDER_RECEIVED`` notification."""
     return f"Your order {order_id} for {format_amount(total_amount)} was received."
+
+
+def order_confirmed_message(order_id: UUID) -> str:
+    """Text of the ``ORDER_CONFIRMED`` notification."""
+    return f"Your order {order_id} was confirmed."

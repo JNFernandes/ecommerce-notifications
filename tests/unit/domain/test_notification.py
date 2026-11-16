@@ -78,3 +78,36 @@ def test_should_offer_one_type_per_order_event_with_the_stored_values() -> None:
         "ORDER_CONFIRMED",
         "ORDER_CANCELLED",
     ]
+
+
+def test_should_build_an_order_confirmed_email_notification_marked_sent() -> None:
+    notification = Notification.order_confirmed(
+        notification_id=NOTIFICATION_ID,
+        customer_id=CUSTOMER_ID,
+        order_id=ORDER_ID,
+        source_event_id=EVENT_ID,
+        now=NOW,
+    )
+
+    assert notification == Notification(
+        id=NOTIFICATION_ID,
+        customer_id=CUSTOMER_ID,
+        order_id=ORDER_ID,
+        type=NotificationType.ORDER_CONFIRMED,
+        channel=NotificationChannel.EMAIL,
+        status=NotificationStatus.SENT,
+        message=f"Your order {ORDER_ID} was confirmed.",
+        created_at=datetime(2026, 11, 16, 10, 0, 0, 123_000, tzinfo=UTC),
+        source_event_id=EVENT_ID,
+    )
+
+
+def test_should_reject_a_confirmation_time_without_timezone() -> None:
+    with pytest.raises(NaiveTimestampError):
+        Notification.order_confirmed(
+            notification_id=NOTIFICATION_ID,
+            customer_id=CUSTOMER_ID,
+            order_id=ORDER_ID,
+            source_event_id=EVENT_ID,
+            now=datetime(2026, 11, 16, 10, 0),
+        )

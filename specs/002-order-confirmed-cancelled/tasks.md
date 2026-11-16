@@ -142,7 +142,7 @@ routing table and the shared envelope are ready.
 **Independent Test**: Produce one confirmation to a real Kafka. One notification exists with the
 message `Your order <orderId> was confirmed.` and one send log line; no order context exists.
 
-- [ ] T008 [P] [US1] Domain: add `order_confirmed_message(order_id) -> str` (`Your order <id> was
+- [X] T008 [P] [US1] Domain: add `order_confirmed_message(order_id) -> str` (`Your order <id> was
   confirmed.`) to `src/notifications/domain/messages.py`, and
   `Notification.order_confirmed(*, notification_id, customer_id, order_id, source_event_id, now)`
   (via `_create`) to `src/notifications/domain/notification.py`.
