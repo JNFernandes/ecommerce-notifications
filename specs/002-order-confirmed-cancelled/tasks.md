@@ -102,7 +102,7 @@ before; every existing US-01 test stays green (some are adapted to new names).
   - an unrouted topic → `InvalidMessageError`;
   - a duplicate topic → `ValueError`;
   - `topics` is in registration order. Gate.
-- [ ] T006 Routing registration for the existing topic (depends on T003, T005):
+- [X] T006 Routing registration for the existing topic (depends on T003, T005):
   1. `KafkaConsumerManager` takes `routing: RoutingTable | None = None` instead of
      `handlers: Sequence[MessageHandler]`. It subscribes to `routing.topics`, and for each record
      calls `processor.process(message, routing)` (the table is the `MessageHandler`). It still

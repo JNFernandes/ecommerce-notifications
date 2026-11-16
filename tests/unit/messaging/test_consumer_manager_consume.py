@@ -12,6 +12,7 @@ from aiokafka.structs import TopicPartition
 from notifications.application.health import ConsumerState
 from notifications.messaging.consumer_manager import KafkaConsumerManager, KafkaRecord
 from notifications.messaging.messages import ConsumedMessage, MessageHandler, ProcessResult
+from notifications.messaging.routing import Route, RoutingTable
 from tests.support.fakes import FailingHandler
 from tests.support.polling import wait_until
 
@@ -73,6 +74,11 @@ class ScriptedProcessor:
         return self.results.pop(0) if self.results else ProcessResult.HANDLED
 
 
+def _routing() -> RoutingTable:
+    """A routing table with one route on ``TOPIC`` whose handler never fails."""
+    return RoutingTable([Route(TOPIC, lambda message: message, FailingHandler().handle)])
+
+
 def _manager(consumer: FakeConsumer, processor: ScriptedProcessor) -> KafkaConsumerManager:
     def factory(topics: Sequence[str]) -> FakeConsumer:
         consumer.subscribed = list(topics)
@@ -81,7 +87,7 @@ def _manager(consumer: FakeConsumer, processor: ScriptedProcessor) -> KafkaConsu
     return KafkaConsumerManager(
         "unused:9092",
         "notifications-test",
-        handlers=[FailingHandler(topic=TOPIC)],
+        routing=_routing(),
         processor=processor,
         consumer_factory=factory,
     )
@@ -132,7 +138,7 @@ async def test_should_keep_consuming_when_a_commit_fails() -> None:
 
 def test_should_require_a_processor_when_handlers_are_registered() -> None:
     with pytest.raises(ValueError, match="processor"):
-        KafkaConsumerManager("unused:9092", "g", handlers=[FailingHandler()])
+        KafkaConsumerManager("unused:9092", "g", routing=_routing())
 
 
 class HangingConsumer(FakeConsumer):
@@ -150,7 +156,7 @@ async def test_should_stop_promptly_while_a_connection_attempt_hangs() -> None:
     manager = KafkaConsumerManager(
         "unused:9092",
         "notifications-test",
-        handlers=[FailingHandler(topic=TOPIC)],
+        routing=_routing(),
         processor=ScriptedProcessor([]),
         consumer_factory=lambda topics: consumer,
         request_timeout_seconds=30,

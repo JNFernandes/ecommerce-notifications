@@ -1,4 +1,4 @@
-"""Tests for parsing and handling ``orders.order-placed`` messages."""
+"""Tests for parsing ``orders.order-placed`` messages and routing them to the service."""
 
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -8,7 +8,8 @@ import pytest
 
 from notifications.application.record_order_received import RecordOrderReceivedService
 from notifications.messaging.messages import InvalidMessageError
-from notifications.messaging.order_placed import OrderPlacedHandler, parse_order_placed
+from notifications.messaging.order_placed import parse_order_placed
+from notifications.messaging.routing import Route
 from tests.support.events import MISSING, order_placed_payload, to_json_bytes
 from tests.support.fakes import (
     FixedClock,
@@ -35,14 +36,12 @@ def _reason(**overrides: object) -> str:
 def test_should_parse_a_valid_event_and_map_it_to_the_command() -> None:
     payload = order_placed_payload(totalAmount=Decimal("129.9"))
 
-    event = parse_order_placed(consumed_message(value=to_json_bytes(payload)))
-    command = event.to_command()
+    command = parse_order_placed(consumed_message(value=to_json_bytes(payload)))
 
     assert command.event_id == UUID(str(payload["eventId"]))
     assert command.order_id == UUID(str(payload["aggregateId"]))
     assert command.customer_id == UUID(str(payload["customerId"]))
     assert command.total_amount == Decimal("129.9")
-    assert event.occurred_at.utcoffset() is not None
 
 
 def test_should_ignore_items_and_unknown_fields() -> None:
@@ -50,15 +49,15 @@ def test_should_ignore_items_and_unknown_fields() -> None:
 
 
 def test_should_accept_an_integer_total() -> None:
-    event = parse_order_placed(
+    command = parse_order_placed(
         consumed_message(value=to_json_bytes(order_placed_payload(totalAmount=100)))
     )
 
-    assert event.total_amount == Decimal(100)
+    assert command.total_amount == Decimal(100)
 
 
 def test_should_keep_a_large_total_exact() -> None:
-    event = parse_order_placed(
+    command = parse_order_placed(
         consumed_message(
             value=to_json_bytes(
                 order_placed_payload(totalAmount=Decimal("123456789012345678.123456789"))
@@ -66,7 +65,7 @@ def test_should_keep_a_large_total_exact() -> None:
         )
     )
 
-    assert event.total_amount == Decimal("123456789012345678.123456789")
+    assert command.total_amount == Decimal("123456789012345678.123456789")
 
 
 def test_should_accept_a_total_of_zero() -> None:
@@ -133,7 +132,7 @@ def test_should_reject_a_value_that_is_not_json() -> None:
         parse_order_placed(consumed_message(value=b"not json"))
 
 
-async def test_should_call_the_service_once_with_the_mapped_command() -> None:
+async def test_should_route_a_valid_event_to_the_service_once() -> None:
     notifications = InMemoryNotificationRepository()
     sender = RecordingSender()
     service = RecordOrderReceivedService(
@@ -144,11 +143,10 @@ async def test_should_call_the_service_once_with_the_mapped_command() -> None:
         SequentialIdGenerator(),
     )
     payload = order_placed_payload()
-    handler = OrderPlacedHandler(service)
+    route = Route("orders.order-placed", parse_order_placed, service.handle)
 
-    await handler.handle(consumed_message(value=to_json_bytes(payload)))
+    await route.run(consumed_message(value=to_json_bytes(payload)))
 
-    assert handler.topic == "orders.order-placed"
     [stored] = notifications.by_source_event.values()
     assert stored.source_event_id == UUID(str(payload["eventId"]))
     assert stored.order_id == UUID(str(payload["aggregateId"]))
@@ -166,6 +164,8 @@ async def test_should_not_call_the_service_for_an_invalid_message() -> None:
     )
 
     with pytest.raises(InvalidMessageError):
-        await OrderPlacedHandler(service).handle(consumed_message(value=b"{}"))
+        await Route("orders.order-placed", parse_order_placed, service.handle).run(
+            consumed_message(value=b"{}")
+        )
 
     assert notifications.by_source_event == {}

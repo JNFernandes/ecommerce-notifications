@@ -1,4 +1,4 @@
-"""Consumer for ``orders.order-placed``: parse, validate and call one application service.
+"""Parser for ``orders.order-placed``: the event model and its mapping to the command.
 
 Contract: ``ecommerce-infra/docs/events.md`` (Orders events / ``orders.order-placed``). The
 envelope, the JSON-type guards and the parsing are shared with the other order events
@@ -10,14 +10,9 @@ from typing import Annotated
 
 from pydantic import BeforeValidator, Field
 
-from notifications.application.record_order_received import (
-    OrderPlacedCommand,
-    RecordOrderReceivedService,
-)
+from notifications.application.record_order_received import OrderPlacedCommand
 from notifications.messaging.events import OrderEventEnvelope, json_number, parse_event
 from notifications.messaging.messages import ConsumedMessage
-
-ORDER_PLACED_TOPIC = "orders.order-placed"
 
 
 class OrderPlacedEvent(OrderEventEnvelope):
@@ -38,30 +33,11 @@ class OrderPlacedEvent(OrderEventEnvelope):
         )
 
 
-def parse_order_placed(message: ConsumedMessage) -> OrderPlacedEvent:
-    """Decode and validate an ``orders.order-placed`` message.
+def parse_order_placed(message: ConsumedMessage) -> OrderPlacedCommand:
+    """Decode and validate an ``orders.order-placed`` message into the application command.
 
     Raises:
         InvalidMessageError: if the value is not a JSON object or breaks the contract; the reason
             lists every invalid field as ``field: problem``.
     """
-    return parse_event(message, OrderPlacedEvent)
-
-
-class OrderPlacedHandler:
-    """Handles ``orders.order-placed``: one call to ``RecordOrderReceivedService.handle``."""
-
-    topic: str = ORDER_PLACED_TOPIC
-
-    def __init__(self, service: RecordOrderReceivedService) -> None:
-        """Delegate valid events to ``service``."""
-        self._service = service
-
-    async def handle(self, message: ConsumedMessage) -> None:
-        """Parse the message and record the notification.
-
-        Raises:
-            InvalidMessageError: for content that breaks the contract (never retried).
-        """
-        event = parse_order_placed(message)
-        await self._service.handle(event.to_command())
+    return parse_event(message, OrderPlacedEvent).to_command()

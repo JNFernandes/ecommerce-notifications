@@ -29,12 +29,7 @@ class InvalidMessageError(Exception):
 
 
 class MessageHandler(Protocol):
-    """Handles the messages of one topic: parse, validate, call one application service."""
-
-    @property
-    def topic(self) -> str:
-        """The topic this handler consumes."""
-        ...
+    """Handles a consumed message (in the service: the topic routing table)."""
 
     async def handle(self, message: ConsumedMessage) -> None:
         """Process one message. Raise ``InvalidMessageError`` for content that can never work."""

@@ -162,10 +162,8 @@ class FailingHandler:
         *,
         failures: int = 0,
         error: Exception | None = None,
-        topic: str = "orders.order-placed",
     ) -> None:
         """Raise ``error`` (default ``RuntimeError``) on the first ``failures`` calls."""
-        self.topic = topic
         self.calls: list[ConsumedMessage] = []
         self._failures = failures
         self._error = error if error is not None else RuntimeError("storage unavailable")

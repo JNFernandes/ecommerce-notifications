@@ -22,9 +22,10 @@ from notifications.infrastructure.sender import LoggingNotificationSender
 from notifications.infrastructure.settings import Settings
 from notifications.infrastructure.system import SystemClock, Uuid4Generator
 from notifications.messaging.consumer_manager import KafkaConsumerManager
-from notifications.messaging.order_placed import OrderPlacedHandler
+from notifications.messaging.order_placed import parse_order_placed
 from notifications.messaging.processor import RetryingMessageProcessor
 from notifications.messaging.retry import RetryPolicy, StopAwareSleeper
+from notifications.messaging.routing import Route, RoutingTable
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,9 @@ def create_app(
         consumers = KafkaConsumerManager(
             resolved.kafka_bootstrap_servers,
             resolved.kafka_group_id,
-            handlers=[OrderPlacedHandler(record_order_received)],
+            routing=RoutingTable(
+                [Route("orders.order-placed", parse_order_placed, record_order_received.handle)]
+            ),
             processor=RetryingMessageProcessor(
                 RetryPolicy(
                     max_attempts=resolved.consumer_retry_max_attempts,
