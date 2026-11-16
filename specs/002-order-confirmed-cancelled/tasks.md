@@ -82,7 +82,7 @@ before; every existing US-01 test stays green (some are adapted to new names).
   `tests/unit/application/test_record_order_received.py` to the new text. Add
   `tests/unit/application/test_recording.py`: stored → sent once; duplicate → not sent, INFO
   logged with the type; a repository error propagates and nothing is sent. Gate.
-- [ ] T005 [P] Routing table: create `src/notifications/messaging/routing.py` (research R1):
+- [X] T005 [P] Routing table: create `src/notifications/messaging/routing.py` (research R1):
   - `Route[C]`: a frozen generic dataclass with `topic`,
     `parse: Callable[[ConsumedMessage], C]` and `handle: Callable[[C], Awaitable[object]]`;
   - an `Any`-free protocol `RunnableRoute` (`topic: str`, `async run(message) -> None`), which
@@ -91,10 +91,9 @@ before; every existing US-01 test stays green (some are adapted to new names).
     exposes `topics: tuple[str, ...]`, and has `async handle(message)`, so it implements
     `MessageHandler`. `handle` raises `InvalidMessageError(f"no route for topic {topic}")` when
     unrouted, and otherwise runs the route once (parse once, service method once).
-  - In `src/notifications/messaging/messages.py`, remove the `topic` property from the
-    `MessageHandler` protocol (keep only `async handle(message)`), and drop `topic` from the
-    `FailingHandler` fake if nothing uses it. `RoutingTable` must type-check as a
-    `MessageHandler` under mypy strict.
+  - (Moved to T006 during implementation: removing `topic` from `MessageHandler` breaks the
+    manager, which still reads `handler.topic` until T006, so it must happen together with the
+    manager change to keep every commit green.)
 
   Tests in `tests/unit/messaging/test_routing.py`:
   - `handle` reaches the matching route only;
@@ -108,6 +107,9 @@ before; every existing US-01 test stays green (some are adapted to new names).
      `handlers: Sequence[MessageHandler]`. It subscribes to `routing.topics`, and for each record
      calls `processor.process(message, routing)` (the table is the `MessageHandler`). It still
      requires a processor when routing is given.
+  1a. In `src/notifications/messaging/messages.py`, remove the `topic` property from the
+     `MessageHandler` protocol (keep only `async handle(message)`), so `RoutingTable` type-checks
+     as a `MessageHandler` under mypy strict (moved here from T005).
   2. `parse_order_placed` returns `OrderPlacedCommand` (the parser output feeds the service
      method directly).
   3. Remove `OrderPlacedHandler` and `ORDER_PLACED_TOPIC`.
