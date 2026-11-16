@@ -287,7 +287,7 @@ one order.
     context is missing after retries.
 
   Commit it there. In this repository, the task commit only ticks the task. Gate.
-- [ ] T018 Run quickstart.md steps 2–4 against ecommerce-infra (the service via `uv run` with
+- [X] T018 Run quickstart.md steps 2–4 against ecommerce-infra (the service via `uv run` with
   `MONGODB_URI` on `127.0.0.2`), using a throwaway database and consumer group. Wait for the order
   context before sending the refund (step 2). Clean up afterwards. Record any deviation as a fix.
   Gate.
