@@ -201,7 +201,7 @@ context's customer, then the send log line.
 letter with `errorType` `OrderContextNotFoundError`, `attempts` = `max_attempts` and the order in
 the message; the offset committed; no notification.
 
-- [ ] T011 [P] [US2] Unit test of the retry path with the real service, in
+- [X] T011 [P] [US2] Unit test of the retry path with the real service, in
   `tests/unit/application/test_record_payment_refunded_retries.py`. Use a
   `RetryingMessageProcessor` (`RecordingSleeper`, `InMemoryDeadLetterStore`), a `RoutingTable`
   with the refund route (`parse_payment_refunded` → `RecordPaymentRefundedService.handle`), and
