@@ -265,7 +265,7 @@ exist with the exact two messages.
 **Independent Test**: Redelivery → one notification; invalid → dead letter and the next message
 processed; one consumer for all three topics.
 
-- [ ] T018 [P] [US3] Integration test in `tests/integration/test_notification_repository.py`:
+- [X] T018 [P] [US3] Integration test in `tests/integration/test_notification_repository.py`:
   - for a confirmed and a cancelled notification, `add` twice with the same `source_event_id` →
     `True` then `False`, one document each (unique index, after `ensure_indexes`);
   - `from_document(to_document(n)) == n` for both new types. Gate.
