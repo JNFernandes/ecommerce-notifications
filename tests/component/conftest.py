@@ -1,15 +1,22 @@
-"""Containers shared by the component tests."""
+"""Containers shared by the component tests (MongoDB comes from ``tests/conftest.py``)."""
 
 from collections.abc import Iterator
 
 import pytest
-from testcontainers.community.mongodb import MongoDbContainer
+from testcontainers.community.kafka import KafkaContainer
 
-MONGO_IMAGE = "mongo:7"
-"""Same major version as the shared ecommerce-infra MongoDB."""
+KAFKA_IMAGE = "confluentinc/cp-kafka:7.6.1"
+"""Same image as the shared ecommerce-infra Kafka."""
 
 
 @pytest.fixture(scope="session")
-def mongodb_url() -> Iterator[str]:
-    with MongoDbContainer(MONGO_IMAGE) as mongo:
-        yield mongo.get_connection_url()
+def kafka_container() -> Iterator[KafkaContainer]:
+    """Start one Kafka broker for the whole component test session."""
+    with KafkaContainer(KAFKA_IMAGE) as kafka:
+        yield kafka
+
+
+@pytest.fixture(scope="session")
+def kafka_bootstrap(kafka_container: KafkaContainer) -> str:
+    """Bootstrap server address of the test broker."""
+    return kafka_container.get_bootstrap_server()

@@ -15,6 +15,10 @@ def test_should_use_local_infrastructure_defaults_when_no_environment_is_set(
         "KAFKA_GROUP_ID",
         "CORS_ALLOWED_ORIGINS",
         "LOG_LEVEL",
+        "CONSUMER_RETRY_MAX_ATTEMPTS",
+        "CONSUMER_RETRY_BASE_DELAY_SECONDS",
+        "CONSUMER_RETRY_MULTIPLIER",
+        "CONSUMER_RETRY_MAX_DELAY_SECONDS",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -28,6 +32,10 @@ def test_should_use_local_infrastructure_defaults_when_no_environment_is_set(
     assert settings.kafka_group_id == "notifications-service"
     assert settings.cors_allowed_origins == []
     assert settings.log_level is LogLevel.INFO
+    assert settings.consumer_retry_max_attempts == 5
+    assert settings.consumer_retry_base_delay_seconds == 1.0
+    assert settings.consumer_retry_multiplier == 2.0
+    assert settings.consumer_retry_max_delay_seconds == 10.0
 
 
 def test_should_read_comma_separated_cors_origins_from_the_environment(
@@ -50,4 +58,38 @@ def test_should_reject_an_unknown_log_level(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("LOG_LEVEL", "verbose")
 
     with pytest.raises(ValueError, match="log_level"):
+        Settings(_env_file=None)
+
+
+def test_should_read_the_retry_settings_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CONSUMER_RETRY_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("CONSUMER_RETRY_BASE_DELAY_SECONDS", "0.5")
+    monkeypatch.setenv("CONSUMER_RETRY_MULTIPLIER", "3")
+    monkeypatch.setenv("CONSUMER_RETRY_MAX_DELAY_SECONDS", "4.5")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.consumer_retry_max_attempts == 3
+    assert settings.consumer_retry_base_delay_seconds == 0.5
+    assert settings.consumer_retry_multiplier == 3.0
+    assert settings.consumer_retry_max_delay_seconds == 4.5
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "field"),
+    [
+        ("CONSUMER_RETRY_MAX_ATTEMPTS", "0", "consumer_retry_max_attempts"),
+        ("CONSUMER_RETRY_BASE_DELAY_SECONDS", "0", "consumer_retry_base_delay_seconds"),
+        ("CONSUMER_RETRY_MULTIPLIER", "0.5", "consumer_retry_multiplier"),
+        ("CONSUMER_RETRY_MAX_DELAY_SECONDS", "0.5", "consumer_retry_max_delay_seconds"),
+    ],
+)
+def test_should_reject_an_invalid_retry_setting(
+    monkeypatch: pytest.MonkeyPatch, variable: str, value: str, field: str
+) -> None:
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(ValueError, match=field):
         Settings(_env_file=None)
