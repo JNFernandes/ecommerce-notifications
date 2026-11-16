@@ -206,7 +206,7 @@ reads work with the broker paused.
   - a preflight `OPTIONS` asking for `DELETE` is not allowed.
 
   The production code is expected to stay as it is (`build_api` already configures CORS). Gate.
-- [ ] T009 [US4] Component tests in the new `tests/component/test_notifications_api_flow.py`, with
+- [X] T009 [US4] Component tests in the new `tests/component/test_notifications_api_flow.py`, with
   the real lifespan, MongoDB and Kafka containers (`create_consumed_topics`, `run_app`):
   - produce an `orders.order-placed` event, then `eventually` `GET /notifications?orderId=<id>`
     returns it (`total` 1, `type` `ORDER_RECEIVED`), and `GET /notifications/{id}` returns the same
