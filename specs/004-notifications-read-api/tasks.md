@@ -75,7 +75,7 @@ documented, CORS, works without Kafka. They are inside the single backlog item U
   - after creating the old index by hand, `ensure_indexes` removes it;
   - running `ensure_indexes` twice is a no-op;
   - the existing unique indexes are unchanged. Gate.
-- [ ] T003 Repository paging (depends on T001, T002). In
+- [X] T003 Repository paging (depends on T001, T002). In
   `src/notifications/infrastructure/repositories/notifications.py`, add to
   `MongoNotificationRepository`:
   - `find_page(filters, limit, offset)`: filter from the given fields (UUIDs as strings, type as
