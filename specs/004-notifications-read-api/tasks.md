@@ -172,7 +172,7 @@ gives 404 `{"detail": "notification <id> not found"}`.
 **Independent Test**: Every invalid request in the matrix below gives 422 (or 405), and none
 gives 5xx.
 
-- [ ] T006 [US3] Tests in `tests/unit/api/test_notifications_endpoints.py`, expected to pass with
+- [X] T006 [US3] Tests in `tests/unit/api/test_notifications_endpoints.py`, expected to pass with
   no production change (if one is needed, keep it inside the API package):
   - `limit` 0 / 101 / `abc` → 422 naming `limit`;
   - `offset` -1 → 422;

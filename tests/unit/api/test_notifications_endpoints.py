@@ -133,3 +133,75 @@ async def test_should_answer_404_with_the_standard_body_for_an_unknown_id(
 
     assert response.status_code == 404
     assert response.json() == {"detail": f"notification {missing} not found"}
+
+
+def _invalid_fields(response_body: object) -> set[str]:
+    assert isinstance(response_body, dict)
+    details = response_body["detail"]
+    assert isinstance(details, list)
+    return {str(error["loc"][-1]) for error in details}
+
+
+@pytest.mark.parametrize(
+    ("params", "field"),
+    [
+        ({"limit": 0}, "limit"),
+        ({"limit": 101}, "limit"),
+        ({"limit": "abc"}, "limit"),
+        ({"offset": -1}, "offset"),
+        ({"type": "FOO"}, "type"),
+        ({"customerId": "not-a-uuid"}, "customerId"),
+        ({"orderId": "123"}, "orderId"),
+    ],
+)
+async def test_should_reject_invalid_list_parameters_with_422(
+    client: AsyncClient, params: dict[str, str | int], field: str
+) -> None:
+    response = await client.get("/notifications", params=params)
+
+    assert response.status_code == 422
+    assert field in _invalid_fields(response.json())
+
+
+async def test_should_list_the_allowed_types_when_the_type_is_unknown(client: AsyncClient) -> None:
+    response = await client.get("/notifications", params={"type": "FOO"})
+
+    message = str(response.json()["detail"][0]["msg"])
+    for allowed in ["ORDER_RECEIVED", "ORDER_CONFIRMED", "ORDER_CANCELLED", "PAYMENT_REFUNDED"]:
+        assert allowed in message
+
+
+async def test_should_reject_a_malformed_id_in_the_path_with_422(client: AsyncClient) -> None:
+    response = await client.get("/notifications/not-a-uuid")
+
+    assert response.status_code == 422
+    assert "notification_id" in _invalid_fields(response.json())
+
+
+async def test_should_accept_uppercase_uuids_and_query_them_in_lowercase(
+    client: AsyncClient, reader: FakeNotificationReader
+) -> None:
+    wanted = reader.notifications[0]
+
+    by_path = await client.get(f"/notifications/{str(wanted.id).upper()}")
+    by_filter = await client.get("/notifications", params={"orderId": str(wanted.order_id).upper()})
+
+    assert by_path.status_code == 200
+    assert by_filter.json()["total"] == 1
+    assert ("find_by_id", wanted.id) in reader.calls
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+@pytest.mark.parametrize("path", ["/notifications", f"/notifications/{uuid4()}"])
+async def test_should_refuse_every_write_method(
+    client: AsyncClient, method: str, path: str
+) -> None:
+    response = await client.request(method, path, json={})
+
+    assert response.status_code == 405
+
+
+async def test_should_ignore_an_unknown_query_parameter(client: AsyncClient) -> None:
+    response = await client.get("/notifications", params={"sort": "oldest"})
+
+    assert response.status_code == 200
