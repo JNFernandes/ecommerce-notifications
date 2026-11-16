@@ -7,6 +7,7 @@ import pytest
 
 from tests.support.app import RunningApp, component_settings, run_app
 from tests.support.events import (
+    MISSING,
     ORDER_CANCELLED_TOPIC,
     ORDER_CONFIRMED_TOPIC,
     order_status_payload,
@@ -120,4 +121,72 @@ async def test_should_record_one_notification_when_a_confirmation_is_delivered_t
             }
         )
         == 0
+    )
+
+
+@pytest.fixture
+async def fast_retry_app(mongodb_url: str, kafka_bootstrap: str) -> AsyncIterator[RunningApp]:
+    """The application with fast retries, so a failing message cannot slow the test down."""
+    await create_order_topics(kafka_bootstrap)
+    settings = component_settings(
+        mongodb_url,
+        kafka_bootstrap,
+        consumer_retry_base_delay_seconds=0.05,
+        consumer_retry_max_delay_seconds=0.1,
+    )
+    async with run_app(settings) as running:
+        yield running
+
+
+async def test_should_dead_letter_invalid_cancellations_and_process_the_next_valid_one(
+    fast_retry_app: RunningApp, kafka_bootstrap: str
+) -> None:
+    app, key = fast_retry_app, b"same-partition"
+    valid = order_status_payload(reason="stock rejected: insufficient stock")
+    partition, wrong_reason_offset = await produce(
+        kafka_bootstrap,
+        ORDER_CANCELLED_TOPIC,
+        to_json_bytes(order_status_payload(reason=42)),
+        key=key,
+    )
+    _, missing_customer_offset = await produce(
+        kafka_bootstrap,
+        ORDER_CANCELLED_TOPIC,
+        to_json_bytes(order_status_payload(customerId=MISSING)),
+        key=key,
+    )
+    _, valid_offset = await produce(
+        kafka_bootstrap, ORDER_CANCELLED_TOPIC, to_json_bytes(valid), key=key
+    )
+
+    await eventually(
+        lambda: committed_offset(
+            kafka_bootstrap, app.settings.kafka_group_id, ORDER_CANCELLED_TOPIC, partition
+        ),
+        lambda committed: committed == valid_offset + 1,
+        description="all three cancellations committed",
+    )
+
+    dead_letters = await (
+        app.database["inbound_dead_letters"]
+        .find(
+            {
+                "topic": ORDER_CANCELLED_TOPIC,
+                "partition": partition,
+                "offset": {"$in": [wrong_reason_offset, missing_customer_offset, valid_offset]},
+            },
+            {"_id": 0},
+        )
+        .sort("offset")
+        .to_list()
+    )
+    assert [d["offset"] for d in dead_letters] == [wrong_reason_offset, missing_customer_offset]
+    assert all(d["attempts"] == 1 and d["errorType"] == "InvalidMessageError" for d in dead_letters)
+    assert "reason: Value error, must be a JSON string or null" in str(
+        dead_letters[0]["errorMessage"]
+    )
+    assert "customerId: Field required" in str(dead_letters[1]["errorMessage"])
+    assert (
+        await app.database["notifications"].count_documents({"sourceEventId": valid["eventId"]})
+        == 1
     )

@@ -273,7 +273,7 @@ processed; one consumer for all three topics.
   same confirmation bytes twice (same key); `eventually` the group's committed offset passes the
   second delivery (`committed_offset`); exactly one notification; one send log record; no dead
   letter at those offsets. Gate.
-- [ ] T020 [US3] Component test in `tests/component/test_order_status_flow.py`, with fast retry
+- [X] T020 [US3] Component test in `tests/component/test_order_status_flow.py`, with fast retry
   settings as in US-01's dead-letter test:
   - produce, with the same key, an invalid cancellation (`reason: 42`), then a cancellation
     without `customerId`, then a valid cancellation;
