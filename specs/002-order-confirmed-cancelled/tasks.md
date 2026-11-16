@@ -201,7 +201,7 @@ the normalised reason, or the generic text.
 **Independent Test**: Produce one cancellation with a reason and one without. Two notifications
 exist with the exact two messages.
 
-- [ ] T013 [US2] Domain, in `src/notifications/domain/messages.py`:
+- [X] T013 [US2] Domain, in `src/notifications/domain/messages.py`:
   - `MAX_REASON_LENGTH = 500`;
   - `normalise_reason(raw: str | None) -> str | None`, following the data-model.md rules;
   - `order_cancelled_message(order_id, reason) -> str`.

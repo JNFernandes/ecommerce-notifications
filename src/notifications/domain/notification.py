@@ -7,7 +7,11 @@ from enum import StrEnum
 from typing import Self
 from uuid import UUID
 
-from notifications.domain.messages import order_confirmed_message, order_received_message
+from notifications.domain.messages import (
+    order_cancelled_message,
+    order_confirmed_message,
+    order_received_message,
+)
 from notifications.domain.time import require_utc_millis
 
 
@@ -99,6 +103,32 @@ class Notification:
             order_id=order_id,
             notification_type=NotificationType.ORDER_CONFIRMED,
             message=order_confirmed_message(order_id),
+            source_event_id=source_event_id,
+            now=now,
+        )
+
+    @classmethod
+    def order_cancelled(
+        cls,
+        *,
+        notification_id: UUID,
+        customer_id: UUID,
+        order_id: UUID,
+        reason: str | None,
+        source_event_id: UUID,
+        now: datetime,
+    ) -> Self:
+        """Build the ``ORDER_CANCELLED`` notification, showing the reason when there is one.
+
+        Raises:
+            NaiveTimestampError: if ``now`` has no timezone.
+        """
+        return cls._create(
+            notification_id=notification_id,
+            customer_id=customer_id,
+            order_id=order_id,
+            notification_type=NotificationType.ORDER_CANCELLED,
+            message=order_cancelled_message(order_id, reason),
             source_event_id=source_event_id,
             now=now,
         )

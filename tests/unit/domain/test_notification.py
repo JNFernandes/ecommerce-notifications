@@ -111,3 +111,34 @@ def test_should_reject_a_confirmation_time_without_timezone() -> None:
             source_event_id=EVENT_ID,
             now=datetime(2026, 11, 16, 10, 0),
         )
+
+
+@pytest.mark.parametrize(
+    ("reason", "message"),
+    [
+        (
+            "stock rejected: insufficient stock",
+            f"Your order {ORDER_ID} was cancelled: stock rejected: insufficient stock.",
+        ),
+        (None, f"Your order {ORDER_ID} was cancelled."),
+    ],
+)
+def test_should_build_an_order_cancelled_notification_with_or_without_a_reason(
+    reason: str | None, message: str
+) -> None:
+    notification = Notification.order_cancelled(
+        notification_id=NOTIFICATION_ID,
+        customer_id=CUSTOMER_ID,
+        order_id=ORDER_ID,
+        reason=reason,
+        source_event_id=EVENT_ID,
+        now=NOW,
+    )
+
+    assert notification.type is NotificationType.ORDER_CANCELLED
+    assert notification.message == message
+    assert (notification.channel, notification.status) == (
+        NotificationChannel.EMAIL,
+        NotificationStatus.SENT,
+    )
+    assert notification.customer_id == CUSTOMER_ID
