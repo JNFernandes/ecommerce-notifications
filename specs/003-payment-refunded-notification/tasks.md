@@ -78,7 +78,7 @@ prerequisites come first (Phases 1–2), each in that layer order.
   (`tests/unit/domain/test_messages.py`, negative / NaN / Infinity) to expect
   `InvalidAmountError`. Add a test that an order total still raises `InvalidOrderTotalError`
   through `order_received_message`. All other existing tests stay unchanged and green. Gate.
-- [ ] T004 [P] Envelope split, in `src/notifications/messaging/events.py`:
+- [X] T004 [P] Envelope split, in `src/notifications/messaging/events.py`:
   - add `EventEnvelope` (frozen, `extra="ignore"`, `use_attribute_docstrings=True`) with
     `eventId`, `aggregateId` (docstring: the id of the aggregate that raised the event; for
     `payments.*` the payment, never the order), `occurredAt` and `version`;

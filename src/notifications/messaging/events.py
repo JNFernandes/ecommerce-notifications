@@ -43,8 +43,8 @@ def json_number(value: object) -> object:
 type JsonUuid = Annotated[UUID, BeforeValidator(json_string)]
 
 
-class OrderEventEnvelope(BaseModel):
-    """Fields shared by every ``orders.*`` event: the envelope plus the customer."""
+class EventEnvelope(BaseModel):
+    """Fields every event carries (``ecommerce-infra/docs/events.md``, Conventions)."""
 
     model_config = ConfigDict(frozen=True, extra="ignore", use_attribute_docstrings=True)
 
@@ -53,13 +53,18 @@ class OrderEventEnvelope(BaseModel):
     ``sourceEventId``)."""
 
     aggregate_id: JsonUuid = Field(alias="aggregateId")
-    """Id of the order (for ``orders.*`` events the aggregate is the order)."""
+    """Id of the aggregate that raised the event: the order for ``orders.*`` events, the payment
+    for ``payments.*`` events (never the order; those carry ``orderId``)."""
 
     occurred_at: Annotated[AwareDatetime, BeforeValidator(json_string)] = Field(alias="occurredAt")
     """When it happened, ISO 8601 with a timezone."""
 
     version: Annotated[Literal[1], BeforeValidator(json_integer)]
     """Schema version of the payload; only version 1 exists."""
+
+
+class OrderEventEnvelope(EventEnvelope):
+    """Fields shared by every ``orders.*`` event: the envelope plus the customer."""
 
     customer_id: JsonUuid = Field(alias="customerId")
     """The customer of the order."""
