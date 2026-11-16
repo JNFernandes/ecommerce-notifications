@@ -173,7 +173,7 @@ message `Your order <orderId> was confirmed.` and one send log line; no order co
   - stored once and sent once, with the exact message;
   - a duplicate → `ALREADY_RECORDED`, not sent;
   - a repository error propagates, not sent. Gate.
-- [ ] T011 [US1] Routing registration (depends on T010): in `src/notifications/main.py`, create
+- [X] T011 [US1] Routing registration (depends on T010): in `src/notifications/main.py`, create
   `RecordOrderStatusService` and add
   `Route(settings.kafka_topic_order_confirmed, parse_order_confirmed, record_order_status.record_confirmed)`.
 

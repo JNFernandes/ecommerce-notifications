@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from notifications.api.app import build_api
 from notifications.application.health import HealthService
 from notifications.application.record_order_received import RecordOrderReceivedService
+from notifications.application.record_order_status import RecordOrderStatusService
 from notifications.infrastructure.indexes import ensure_indexes
 from notifications.infrastructure.mongo import MongoDatabaseProbe, create_mongo_client
 from notifications.infrastructure.repositories.dead_letters import MongoDeadLetterStore
@@ -23,6 +24,7 @@ from notifications.infrastructure.settings import Settings
 from notifications.infrastructure.system import SystemClock, Uuid4Generator
 from notifications.messaging.consumer_manager import KafkaConsumerManager
 from notifications.messaging.order_placed import parse_order_placed
+from notifications.messaging.order_status import parse_order_confirmed
 from notifications.messaging.processor import RetryingMessageProcessor
 from notifications.messaging.retry import RetryPolicy, StopAwareSleeper
 from notifications.messaging.routing import Route, RoutingTable
@@ -35,6 +37,28 @@ def configure_logging(settings: Settings) -> None:
     logging.basicConfig(
         level=settings.log_level.value,
         format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+    )
+
+
+def build_routing_table(
+    settings: Settings,
+    record_order_received: RecordOrderReceivedService,
+    record_order_status: RecordOrderStatusService,
+) -> RoutingTable:
+    """Register one route per consumed topic: topic -> parser -> one service method."""
+    return RoutingTable(
+        [
+            Route(
+                settings.kafka_topic_order_placed,
+                parse_order_placed,
+                record_order_received.handle,
+            ),
+            Route(
+                settings.kafka_topic_order_confirmed,
+                parse_order_confirmed,
+                record_order_status.record_confirmed,
+            ),
+        ]
     )
 
 
@@ -58,27 +82,17 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         client = create_mongo_client(resolved)
         database = client[resolved.mongodb_database]
-        clock = SystemClock()
+        clock, ids = SystemClock(), Uuid4Generator()
+        notifications, sender = MongoNotificationRepository(database), LoggingNotificationSender()
         record_order_received = RecordOrderReceivedService(
-            MongoOrderContextRepository(database),
-            MongoNotificationRepository(database),
-            LoggingNotificationSender(),
-            clock,
-            Uuid4Generator(),
+            MongoOrderContextRepository(database), notifications, sender, clock, ids
         )
+        record_order_status = RecordOrderStatusService(notifications, sender, clock, ids)
         stop_event = asyncio.Event()
         consumers = KafkaConsumerManager(
             resolved.kafka_bootstrap_servers,
             resolved.kafka_group_id,
-            routing=RoutingTable(
-                [
-                    Route(
-                        resolved.kafka_topic_order_placed,
-                        parse_order_placed,
-                        record_order_received.handle,
-                    )
-                ]
-            ),
+            routing=build_routing_table(resolved, record_order_received, record_order_status),
             processor=RetryingMessageProcessor(
                 RetryPolicy(
                     max_attempts=resolved.consumer_retry_max_attempts,
