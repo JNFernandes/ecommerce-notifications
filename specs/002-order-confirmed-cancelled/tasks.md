@@ -150,7 +150,7 @@ message `Your order <orderId> was confirmed.` and one send log line; no order co
   Tests in `tests/unit/domain/test_messages.py` (exact text; deterministic) and
   `tests/unit/domain/test_notification.py` (all fields; type `ORDER_CONFIRMED`; naive `now` →
   `NaiveTimestampError`). Gate.
-- [ ] T009 [P] [US1] Parser:
+- [X] T009 [P] [US1] Parser:
   - add `OrderConfirmedCommand` (frozen dataclass: `event_id`, `order_id`, `customer_id`) to the
     new `src/notifications/application/record_order_status.py` (commands only in this task);
   - create `src/notifications/messaging/order_status.py` with
