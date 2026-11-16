@@ -35,7 +35,7 @@ US3 reliability). They are inside the single backlog item US-02.
 
 **Purpose**: Test fixtures for the new topics. No production change.
 
-- [ ] T001 [P] Add `create_topics(bootstrap, names, partitions=3)` to `tests/support/kafka.py`.
+- [X] T001 [P] Add `create_topics(bootstrap, names, partitions=3)` to `tests/support/kafka.py`.
   It loops over `create_topic`. Then add `ORDER_CONFIRMED_TOPIC = "orders.order-confirmed"` and
   `ORDER_CANCELLED_TOPIC = "orders.order-cancelled"` test constants, and
   `order_status_payload(**overrides)` (envelope + `customerId`, `MISSING` removes a key), to

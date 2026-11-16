@@ -58,3 +58,9 @@ def pause_kafka(container: KafkaContainer) -> None:
 def unpause_kafka(container: KafkaContainer) -> None:
     """Resume a paused broker."""
     container.get_wrapped_container().unpause()
+
+
+async def create_topics(bootstrap: str, names: list[str], partitions: int = 3) -> None:
+    """Create every topic in ``names`` (existing topics are fine)."""
+    for name in names:
+        await create_topic(bootstrap, name, partitions)
