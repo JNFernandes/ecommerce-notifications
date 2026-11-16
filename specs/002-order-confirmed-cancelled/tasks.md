@@ -220,7 +220,7 @@ exist with the exact two messages.
 
   In `tests/unit/domain/test_notification.py`: the factory's type and message, with and without a
   reason. Gate.
-- [ ] T014 [P] [US2] Parser:
+- [X] T014 [P] [US2] Parser:
   - add `OrderCancelledCommand` (`event_id`, `order_id`, `customer_id`, `reason: str | None`) to
     `src/notifications/application/record_order_status.py`;
   - add `OrderCancelledEvent(OrderEventEnvelope)` with `reason: str | None = None`, a

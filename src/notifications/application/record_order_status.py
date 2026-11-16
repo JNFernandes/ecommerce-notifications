@@ -27,6 +27,17 @@ class OrderConfirmedCommand:
     customer_id: UUID
 
 
+@dataclass(frozen=True, slots=True)
+class OrderCancelledCommand:
+    """The data of an ``orders.order-cancelled`` event that this use case needs."""
+
+    event_id: UUID
+    order_id: UUID
+    customer_id: UUID
+    reason: str | None
+    """The reason as received; the domain decides how it is shown."""
+
+
 class RecordOrderStatusService:
     """Records notifications for changes of an order's status (confirmed, cancelled)."""
 
