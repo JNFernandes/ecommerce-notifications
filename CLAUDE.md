@@ -76,6 +76,12 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
   invalid message (dead letter).
 - Confirmations and cancellations take the customer from the event and never touch
   `OrderContext`.
+- Refunds (`payments.*`): `aggregateId` is the **payment** id; the order is `orderId`, always.
+  The customer comes only from `OrderContextRepository.get(order_id)`; missing →
+  `application/errors.py::OrderContextNotFoundError` (retryable, never `InvalidMessageError`):
+  the processor retries, then dead-letters. Refunds never write order contexts. Amount: two
+  decimals + currency code (`require_currency_code`, three uppercase letters). Late contexts
+  after the dead letter are an accepted limitation (README).
 - Notifications are immutable. Messages come from domain templates: deterministic, ids and amounts
   only, no personal data beyond `customerId`.
 - `payments.payment-refunded` has no `customerId`: resolve it through `OrderContext` by `orderId`
@@ -111,8 +117,9 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
   store fails, it waits `max_delay` and processes the **whole message again**; it never returns
   `HANDLED` for an unhandled message (commits are cumulative per partition).
 - Parse payloads with `decode_json_object` (`json.loads(..., parse_float=Decimal)`) and validate
-  in Python mode with JSON-type guards (`BeforeValidator`s in `messaging/events.py`). Every order
-  event model extends `OrderEventEnvelope` and is parsed with `parse_event`; a parser returns the
+  in Python mode with JSON-type guards (`BeforeValidator`s in `messaging/events.py`). Every event
+  model extends `EventEnvelope` (`orders.*` events through `OrderEventEnvelope`, which adds
+  `customerId`) and is parsed with `parse_event`; a parser returns the
   application command, so it plugs straight into a `Route`.
   Never `model_validate_json` for amounts: it loses precision on large values, and lax mode
   accepts `true` / `1.0` as `version: 1`.
@@ -161,8 +168,12 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
   for sync conditions, `eventually` for async probes such as DB queries or readiness).
 - Component helpers: `tests/support/app.py` (`run_app`, `component_settings`: fresh database and
   consumer group per test), `tests/support/kafka.py` (topics, `produce` → partition/offset,
-  `committed_offset`, `pause_kafka`). The topic is shared across component tests and consumed
-  from the earliest offset, so assert only on this test's events and offsets.
+  `committed_offset`, `pause_kafka`). Fixtures call `create_consumed_topics` (every topic the
+  consumer subscribes to, `CONSUMED_TOPICS`); a new route needs its topic there first, or the
+  consumer group stalls. Topics are shared across component tests and consumed from the earliest
+  offset, so assert only on this test's events and offsets; `component_settings` uses fast
+  retries so leftovers from other tests stay cheap. For a refund, wait for the order context
+  before producing it.
 - Names describe behaviour: `test_should_..._when_...`.
 - Coverage: `--cov-fail-under=80` on `src/notifications/domain` and `src/notifications/application`.
 - **Component tests and the read API (constitution VII, v1.1.0):** until the read API exists,
@@ -207,14 +218,7 @@ US-02: `orders.order-confirmed` / `orders.order-cancelled` → `messaging/order_
 `Event already recorded: type=… sourceEvent=… order=…`). Spec and design:
 `specs/002-order-confirmed-cancelled/`.
 
-## Active feature
-
-US-03 payment refunded: `specs/003-payment-refunded-notification/` (plan, research R1–R9).
-Key decisions while implementing:
-- The order is `orderId`; `aggregateId` is the payment id and is never used as the order.
-- Customer only from `OrderContextRepository.get(order_id)`; missing → raise
-  `application/errors.py::OrderContextNotFoundError` (retryable: the processor retries, then
-  dead-letters). Never store a refund notification without a customer.
-- `messaging/events.py` gets a generic `EventEnvelope`; `OrderEventEnvelope` extends it.
-- Component tests: wait for the order context before producing the refund; the test topics list
-  must include `payments.payment-refunded`.
+US-03: `payments.payment-refunded` → `messaging/payment_refunded.py` (`parse_payment_refunded`,
+order = `orderId`) → `application/record_payment_refunded.py` (`RecordPaymentRefundedService`:
+`OrderContextRepository.get` → `OrderContextNotFoundError` or `Notification.payment_refunded` →
+`record_and_send`). Spec and design: `specs/003-payment-refunded-notification/`.

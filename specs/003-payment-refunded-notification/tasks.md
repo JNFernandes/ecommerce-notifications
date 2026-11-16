@@ -271,7 +271,7 @@ one order.
     retries then a dead letter; why a backlog can cause it (one message at a time per instance);
     how to find such refunds (`inbound_dead_letters`, `errorType: "OrderContextNotFoundError"`);
     no replay. Gate.
-- [ ] T016 [P] Update `CLAUDE.md`:
+- [X] T016 [P] Update `CLAUDE.md`:
   - move the "Active feature" notes into permanent rules (`orderId` vs `aggregateId` for
     `payments.*`; customer only from `OrderContextRepository.get`; `OrderContextNotFoundError` is
     retryable; `EventEnvelope` / `OrderEventEnvelope`; test topics = `CONSUMED_TOPICS`);
