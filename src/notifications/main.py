@@ -14,6 +14,7 @@ from notifications.api.app import build_api
 from notifications.application.health import HealthService
 from notifications.application.record_order_received import RecordOrderReceivedService
 from notifications.application.record_order_status import RecordOrderStatusService
+from notifications.application.record_payment_refunded import RecordPaymentRefundedService
 from notifications.infrastructure.indexes import ensure_indexes
 from notifications.infrastructure.mongo import MongoDatabaseProbe, create_mongo_client
 from notifications.infrastructure.repositories.dead_letters import MongoDeadLetterStore
@@ -25,6 +26,7 @@ from notifications.infrastructure.system import SystemClock, Uuid4Generator
 from notifications.messaging.consumer_manager import KafkaConsumerManager
 from notifications.messaging.order_placed import parse_order_placed
 from notifications.messaging.order_status import parse_order_cancelled, parse_order_confirmed
+from notifications.messaging.payment_refunded import parse_payment_refunded
 from notifications.messaging.processor import RetryingMessageProcessor
 from notifications.messaging.retry import RetryPolicy, StopAwareSleeper
 from notifications.messaging.routing import Route, RoutingTable
@@ -44,6 +46,7 @@ def build_routing_table(
     settings: Settings,
     record_order_received: RecordOrderReceivedService,
     record_order_status: RecordOrderStatusService,
+    record_payment_refunded: RecordPaymentRefundedService,
 ) -> RoutingTable:
     """Register one route per consumed topic: topic -> parser -> one service method."""
     return RoutingTable(
@@ -62,6 +65,11 @@ def build_routing_table(
                 settings.kafka_topic_order_cancelled,
                 parse_order_cancelled,
                 record_order_status.record_cancelled,
+            ),
+            Route(
+                settings.kafka_topic_payment_refunded,
+                parse_payment_refunded,
+                record_payment_refunded.handle,
             ),
         ]
     )
@@ -89,15 +97,21 @@ def create_app(
         database = client[resolved.mongodb_database]
         clock, ids = SystemClock(), Uuid4Generator()
         notifications, sender = MongoNotificationRepository(database), LoggingNotificationSender()
+        order_contexts = MongoOrderContextRepository(database)
         record_order_received = RecordOrderReceivedService(
-            MongoOrderContextRepository(database), notifications, sender, clock, ids
+            order_contexts, notifications, sender, clock, ids
+        )
+        record_payment_refunded = RecordPaymentRefundedService(
+            order_contexts, notifications, sender, clock, ids
         )
         record_order_status = RecordOrderStatusService(notifications, sender, clock, ids)
         stop_event = asyncio.Event()
         consumers = KafkaConsumerManager(
             resolved.kafka_bootstrap_servers,
             resolved.kafka_group_id,
-            routing=build_routing_table(resolved, record_order_received, record_order_status),
+            routing=build_routing_table(
+                resolved, record_order_received, record_order_status, record_payment_refunded
+            ),
             processor=RetryingMessageProcessor(
                 RetryPolicy(
                     max_attempts=resolved.consumer_retry_max_attempts,

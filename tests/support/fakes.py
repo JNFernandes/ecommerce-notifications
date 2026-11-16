@@ -57,6 +57,12 @@ class InMemoryOrderContextRepository:
             self.by_order[context.order_id] = context
         return existing
 
+    async def get(self, order_id: UUID) -> OrderContext | None:
+        """Return the stored context of ``order_id``, if any."""
+        if self._error is not None:
+            raise self._error
+        return self.by_order.get(order_id)
+
 
 class RecordingSender:
     """Notification sender that records what it sent."""
@@ -192,3 +198,28 @@ def consumed_message(
         value=value,
         timestamp_ms=0,
     )
+
+
+class LateOrderContextRepository:
+    """Order context repository whose context only appears after some lookups.
+
+    Simulates another instance recording the context while a refund is being retried. Writing a
+    context fails the test: refunds must never create order contexts.
+    """
+
+    def __init__(self, context: OrderContext, *, missing_calls: int) -> None:
+        """Return ``None`` for the first ``missing_calls`` lookups, then ``context``."""
+        self.calls = 0
+        self._context = context
+        self._missing_calls = missing_calls
+
+    async def add_if_absent(self, context: OrderContext) -> OrderContext | None:
+        """Fail: refunds must not write order contexts."""
+        raise AssertionError(f"unexpected order context write for {context.order_id}")
+
+    async def get(self, order_id: UUID) -> OrderContext | None:
+        """Return ``None`` until ``missing_calls`` lookups have happened."""
+        self.calls += 1
+        if self.calls <= self._missing_calls or order_id != self._context.order_id:
+            return None
+        return self._context

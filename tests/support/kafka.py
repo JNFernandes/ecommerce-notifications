@@ -66,10 +66,15 @@ async def create_topics(bootstrap: str, names: list[str], partitions: int = 3) -
         await create_topic(bootstrap, name, partitions)
 
 
-ORDER_TOPICS = ["orders.order-placed", "orders.order-confirmed", "orders.order-cancelled"]
+CONSUMED_TOPICS = [
+    "orders.order-placed",
+    "orders.order-confirmed",
+    "orders.order-cancelled",
+    "payments.payment-refunded",
+]
 """Every topic the consumer subscribes to with default settings, like ``kafka-init`` creates."""
 
 
-async def create_order_topics(bootstrap: str) -> None:
-    """Create all consumed order topics, as ecommerce-infra does before the services start."""
-    await create_topics(bootstrap, ORDER_TOPICS)
+async def create_consumed_topics(bootstrap: str) -> None:
+    """Create all consumed topics, as ecommerce-infra does before the services start."""
+    await create_topics(bootstrap, CONSUMED_TOPICS)

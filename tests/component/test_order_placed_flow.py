@@ -9,7 +9,7 @@ from bson.decimal128 import Decimal128
 
 from tests.support.app import RunningApp, component_settings, run_app
 from tests.support.events import order_placed_payload, to_json_bytes
-from tests.support.kafka import committed_offset, create_order_topics, produce
+from tests.support.kafka import committed_offset, create_consumed_topics, produce
 from tests.support.polling import eventually
 
 pytestmark = pytest.mark.component
@@ -21,7 +21,7 @@ type Document = dict[str, object]
 @pytest.fixture
 async def app(mongodb_url: str, kafka_bootstrap: str) -> AsyncIterator[RunningApp]:
     """The application, connected to the test broker and a fresh database."""
-    await create_order_topics(kafka_bootstrap)
+    await create_consumed_topics(kafka_bootstrap)
     async with run_app(component_settings(mongodb_url, kafka_bootstrap)) as running:
         yield running
 

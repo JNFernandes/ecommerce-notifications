@@ -77,6 +77,7 @@ def test_should_offer_one_type_per_order_event_with_the_stored_values() -> None:
         "ORDER_RECEIVED",
         "ORDER_CONFIRMED",
         "ORDER_CANCELLED",
+        "PAYMENT_REFUNDED",
     ]
 
 
@@ -142,3 +143,37 @@ def test_should_build_an_order_cancelled_notification_with_or_without_a_reason(
         NotificationStatus.SENT,
     )
     assert notification.customer_id == CUSTOMER_ID
+
+
+def test_should_build_a_payment_refunded_email_notification_marked_sent() -> None:
+    notification = Notification.payment_refunded(
+        notification_id=NOTIFICATION_ID,
+        customer_id=CUSTOMER_ID,
+        order_id=ORDER_ID,
+        amount=Decimal("129.9"),
+        currency="EUR",
+        source_event_id=EVENT_ID,
+        now=NOW,
+    )
+
+    assert notification.type is NotificationType.PAYMENT_REFUNDED
+    assert (notification.channel, notification.status) == (
+        NotificationChannel.EMAIL,
+        NotificationStatus.SENT,
+    )
+    assert (notification.customer_id, notification.order_id) == (CUSTOMER_ID, ORDER_ID)
+    assert notification.message == f"Your payment of 129.90 EUR for order {ORDER_ID} was refunded."
+    assert notification.created_at == datetime(2026, 11, 16, 10, 0, 0, 123_000, tzinfo=UTC)
+
+
+def test_should_reject_a_refund_time_without_timezone() -> None:
+    with pytest.raises(NaiveTimestampError):
+        Notification.payment_refunded(
+            notification_id=NOTIFICATION_ID,
+            customer_id=CUSTOMER_ID,
+            order_id=ORDER_ID,
+            amount=Decimal("1"),
+            currency="EUR",
+            source_event_id=EVENT_ID,
+            now=datetime(2026, 11, 16, 10, 0),
+        )

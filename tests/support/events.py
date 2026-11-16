@@ -76,3 +76,31 @@ def order_status_payload(**overrides: object) -> dict[str, object]:
         else:
             payload[key] = value
     return payload
+
+
+PAYMENT_REFUNDED_TOPIC = "payments.payment-refunded"
+
+
+def payment_refunded_payload(**overrides: object) -> dict[str, object]:
+    """Return a valid ``payments.payment-refunded`` JSON object, as Payments publishes it.
+
+    ``aggregateId`` is the payment id and always differs from ``orderId``. Timestamps use the
+    ``+00:00`` offset that .NET ``DateTimeOffset`` writes. ``MISSING`` removes a key.
+    """
+    now = datetime.now(UTC).isoformat()
+    payload: dict[str, object] = {
+        "eventId": str(uuid4()),
+        "occurredAt": now,
+        "aggregateId": str(uuid4()),
+        "version": 1,
+        "orderId": str(uuid4()),
+        "amount": Decimal("129.90"),
+        "currency": "EUR",
+        "refundedAt": now,
+    }
+    for key, value in overrides.items():
+        if value is MISSING:
+            payload.pop(key, None)
+        else:
+            payload[key] = value
+    return payload

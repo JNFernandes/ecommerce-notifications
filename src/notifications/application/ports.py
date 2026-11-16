@@ -58,3 +58,7 @@ class OrderContextRepository(Protocol):
             ``None`` if ``context`` was stored, otherwise the existing context (left unchanged).
         """
         ...
+
+    async def get(self, order_id: UUID) -> OrderContext | None:
+        """Return the context recorded for ``order_id``, or ``None`` if there is none yet."""
+        ...

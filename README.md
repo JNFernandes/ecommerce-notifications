@@ -10,9 +10,9 @@ API is read-only, and the service publishes no events.
 The rules for this codebase are in the [constitution](.specify/memory/constitution.md).
 Architectural decisions are in [docs/adr](docs/adr/README.md).
 
-> **Status:** US-01 and US-02 done. The service consumes `orders.order-placed`,
-> `orders.order-confirmed` and `orders.order-cancelled`. The refund notification (US-03) and the
-> notification queries (US-04) come with their user stories.
+> **Status:** US-01, US-02 and US-03 done. The service consumes `orders.order-placed`,
+> `orders.order-confirmed`, `orders.order-cancelled` and `payments.payment-refunded`. The
+> notification queries (US-04) come with their user story.
 
 ## Consumed topics
 
@@ -21,7 +21,7 @@ Architectural decisions are in [docs/adr](docs/adr/README.md).
 | `orders.order-placed` | `ORDER_RECEIVED` | Also stores the order's customer and total (`OrderContext`), see [ADR 0003](docs/adr/0003-consume-order-placed-for-refund-customer.md). Message: `Your order <orderId> for <totalAmount> was received.` | implemented (US-01) |
 | `orders.order-confirmed` | `ORDER_CONFIRMED` | Customer from the event; no `OrderContext`. Message: `Your order <orderId> was confirmed.` | implemented (US-02) |
 | `orders.order-cancelled` | `ORDER_CANCELLED` | Customer from the event; no `OrderContext`. Message: `Your order <orderId> was cancelled: <reason>.`, or `Your order <orderId> was cancelled.` without a reason. The reason is trimmed, kept on one line, loses one trailing period, and is cut at 500 characters (`…`); a `reason` that is not a string or `null` makes the message invalid. | implemented (US-02) |
-| `payments.payment-refunded` | `PAYMENT_REFUNDED` | The event has no `customerId`; the customer comes from the `OrderContext`. | planned |
+| `payments.payment-refunded` | `PAYMENT_REFUNDED` | The event has no `customerId`; the customer comes from the `OrderContext` of the event's `orderId` (never `aggregateId`, which is the payment id). Message: `Your payment of <amount> <currency> for order <orderId> was refunded.` (two decimals). A missing context is retried, then dead-lettered (see Known limitation). | implemented (US-03) |
 
 Payloads are defined in
 [`ecommerce-infra/docs/events.md`](../ecommerce-infra/docs/events.md), the source of truth for
@@ -50,6 +50,24 @@ every event contract.
   down), the consumer holds the message and processes it again after `CONSUMER_RETRY_MAX_DELAY_SECONDS`
   until it is stored or dead-lettered.
 - Amounts are read and stored exactly (`Decimal`, `Decimal128` in MongoDB), never as floats.
+
+### Known limitation: refund before its order context
+
+A refund notification needs the customer, which only the order's placement provides (stored as
+the `OrderContext`). If no context exists for the refund's `orderId`, the refund is retried with
+the `CONSUMER_RETRY_*` backoff (about 15 s with the defaults) and then stored in
+`inbound_dead_letters` with `errorType: "OrderContextNotFoundError"` and the order id in
+`errorMessage`. No notification is ever stored without a customer.
+
+In normal operation the placement is processed long before the refund (a refund follows a
+cancellation, which follows the placement). It can happen while the service catches up on a
+backlog: messages are processed one at a time per instance, so the placement waiting behind a
+retrying refund cannot be processed in time. **Such refunds are not recorded later**, even after
+the context arrives; replaying dead letters is not provided. Find them with:
+
+```js
+db.inbound_dead_letters.find({ errorType: "OrderContextNotFoundError" })
+```
 
 ## HTTP API
 
@@ -135,6 +153,7 @@ All settings come from environment variables. The defaults match `ecommerce-infr
 | `KAFKA_TOPIC_ORDER_PLACED` | `orders.order-placed` | Topic of `OrderPlaced` events (`ORDER_RECEIVED`) |
 | `KAFKA_TOPIC_ORDER_CONFIRMED` | `orders.order-confirmed` | Topic of `OrderConfirmed` events (`ORDER_CONFIRMED`) |
 | `KAFKA_TOPIC_ORDER_CANCELLED` | `orders.order-cancelled` | Topic of `OrderCancelled` events (`ORDER_CANCELLED`) |
+| `KAFKA_TOPIC_PAYMENT_REFUNDED` | `payments.payment-refunded` | Topic of `PaymentRefunded` events (`PAYMENT_REFUNDED`) |
 | `CORS_ALLOWED_ORIGINS` | empty | Comma-separated origins allowed to call the API (`GET` only) |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 | `CONSUMER_RETRY_MAX_ATTEMPTS` | `5` | Attempts per consumed message, the first included (`>= 1`; `1` means no retries) |
@@ -147,7 +166,7 @@ defaults the pauses are 1, 2, 4 and 8 seconds, about 15 seconds per failing mess
 value stops the service at startup with an error naming the variable.
 
 The topic defaults are the contract names in `ecommerce-infra/docs/events.md`; override them only
-for tests or a renamed environment. The three names must differ.
+for tests or a renamed environment. The four names must differ.
 
 ### Docker
 

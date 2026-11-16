@@ -6,7 +6,7 @@ import pytest
 
 from tests.support.app import RunningApp, component_settings, run_app
 from tests.support.events import MISSING, order_placed_payload, to_json_bytes
-from tests.support.kafka import committed_offset, create_order_topics, produce
+from tests.support.kafka import committed_offset, create_consumed_topics, produce
 from tests.support.polling import eventually
 
 pytestmark = pytest.mark.component
@@ -17,7 +17,7 @@ TOPIC = "orders.order-placed"
 @pytest.fixture
 async def app(mongodb_url: str, kafka_bootstrap: str) -> AsyncIterator[RunningApp]:
     """The application with fast retries, connected to the test broker."""
-    await create_order_topics(kafka_bootstrap)
+    await create_consumed_topics(kafka_bootstrap)
     settings = component_settings(
         mongodb_url,
         kafka_bootstrap,

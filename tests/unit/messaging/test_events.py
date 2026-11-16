@@ -5,7 +5,7 @@ from uuid import UUID
 
 import pytest
 
-from notifications.messaging.events import OrderEventEnvelope, parse_event
+from notifications.messaging.events import EventEnvelope, OrderEventEnvelope, parse_event
 from notifications.messaging.messages import InvalidMessageError
 from tests.support.events import MISSING, order_status_payload, to_json_bytes
 from tests.support.fakes import consumed_message
@@ -53,3 +53,19 @@ def test_should_report_every_invalid_field() -> None:
 def test_should_reject_a_value_that_is_not_json() -> None:
     with pytest.raises(InvalidMessageError, match="not valid JSON"):
         parse_event(consumed_message(value=b"not json"), OrderEventEnvelope)
+
+
+def test_should_accept_an_event_without_customer_as_a_generic_envelope() -> None:
+    payload = order_status_payload(customerId=MISSING)
+
+    envelope = parse_event(consumed_message(value=to_json_bytes(payload)), EventEnvelope)
+
+    assert envelope.event_id == UUID(str(payload["eventId"]))
+    assert not hasattr(envelope, "customer_id")
+
+
+def test_should_require_the_customer_only_for_order_events() -> None:
+    message = consumed_message(value=to_json_bytes(order_status_payload(customerId=MISSING)))
+
+    with pytest.raises(InvalidMessageError, match="customerId: Field required"):
+        parse_event(message, OrderEventEnvelope)

@@ -4,13 +4,30 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
-from notifications.domain.errors import InvalidOrderTotalError
+from notifications.domain.errors import (
+    InvalidAmountError,
+    InvalidCurrencyError,
+    InvalidOrderTotalError,
+)
 
 _CENTS = Decimal("0.01")
 _LINE_BREAKS_AND_TABS = re.compile(r"[\r\n\t]+")
 
+_CURRENCY_CODE = re.compile(r"[A-Z]{3}")
+
 MAX_REASON_LENGTH = 500
 """Longest cancellation reason shown in a message; longer reasons are cut and end with ``…``."""
+
+
+def require_valid_amount(amount: Decimal) -> Decimal:
+    """Return ``amount`` if it is a finite, non-negative amount of money.
+
+    Raises:
+        InvalidAmountError: if the amount is negative, infinite or NaN.
+    """
+    if not amount.is_finite() or amount < 0:
+        raise InvalidAmountError(f"amount must be a finite amount >= 0, got {amount}")
+    return amount
 
 
 def require_valid_total(amount: Decimal) -> Decimal:
@@ -25,13 +42,22 @@ def require_valid_total(amount: Decimal) -> Decimal:
 
 
 def format_amount(amount: Decimal) -> str:
-    """Write ``amount`` with two decimals (rounded half up), without exponent or currency."""
-    return format(require_valid_total(amount).quantize(_CENTS, rounding=ROUND_HALF_UP), "f")
+    """Write ``amount`` with two decimals (rounded half up), without exponent or currency.
+
+    Raises:
+        InvalidAmountError: if the amount is negative, infinite or NaN.
+    """
+    return format(require_valid_amount(amount).quantize(_CENTS, rounding=ROUND_HALF_UP), "f")
 
 
 def order_received_message(order_id: UUID, total_amount: Decimal) -> str:
-    """Text of the ``ORDER_RECEIVED`` notification."""
-    return f"Your order {order_id} for {format_amount(total_amount)} was received."
+    """Text of the ``ORDER_RECEIVED`` notification.
+
+    Raises:
+        InvalidOrderTotalError: if the total is negative, infinite or NaN.
+    """
+    amount = format_amount(require_valid_total(total_amount))
+    return f"Your order {order_id} for {amount} was received."
 
 
 def order_confirmed_message(order_id: UUID) -> str:
@@ -63,3 +89,25 @@ def order_cancelled_message(order_id: UUID, reason: str | None) -> str:
     if shown is None:
         return f"Your order {order_id} was cancelled."
     return f"Your order {order_id} was cancelled: {shown}."
+
+
+def require_currency_code(code: str) -> str:
+    """Return ``code`` if it is a three-letter uppercase ISO 4217 code.
+
+    Raises:
+        InvalidCurrencyError: otherwise.
+    """
+    if not _CURRENCY_CODE.fullmatch(code):
+        raise InvalidCurrencyError(f"currency must be three uppercase letters, got {code!r}")
+    return code
+
+
+def payment_refunded_message(order_id: UUID, amount: Decimal, currency: str) -> str:
+    """Text of the ``PAYMENT_REFUNDED`` notification: amount with two decimals, then currency.
+
+    Raises:
+        InvalidAmountError: if the amount is negative, infinite or NaN.
+        InvalidCurrencyError: if the currency is not a three-letter uppercase code.
+    """
+    shown = f"{format_amount(amount)} {require_currency_code(currency)}"
+    return f"Your payment of {shown} for order {order_id} was refunded."

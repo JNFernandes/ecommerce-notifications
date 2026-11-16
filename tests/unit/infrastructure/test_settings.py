@@ -22,6 +22,7 @@ def test_should_use_local_infrastructure_defaults_when_no_environment_is_set(
         "KAFKA_TOPIC_ORDER_PLACED",
         "KAFKA_TOPIC_ORDER_CONFIRMED",
         "KAFKA_TOPIC_ORDER_CANCELLED",
+        "KAFKA_TOPIC_PAYMENT_REFUNDED",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -42,6 +43,7 @@ def test_should_use_local_infrastructure_defaults_when_no_environment_is_set(
     assert settings.kafka_topic_order_placed == "orders.order-placed"
     assert settings.kafka_topic_order_confirmed == "orders.order-confirmed"
     assert settings.kafka_topic_order_cancelled == "orders.order-cancelled"
+    assert settings.kafka_topic_payment_refunded == "payments.payment-refunded"
 
 
 def test_should_read_comma_separated_cors_origins_from_the_environment(
@@ -123,3 +125,20 @@ def test_should_reject_two_consumed_topics_with_the_same_name(
         Settings(_env_file=None)
 
     assert "kafka_topic_order_confirmed" in str(raised.value)
+
+
+def test_should_read_the_refund_topic_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KAFKA_TOPIC_PAYMENT_REFUNDED", "test.payment-refunded")
+
+    assert Settings(_env_file=None).kafka_topic_payment_refunded == "test.payment-refunded"
+
+
+def test_should_reject_a_refund_topic_equal_to_an_order_topic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KAFKA_TOPIC_PAYMENT_REFUNDED", "orders.order-cancelled")
+
+    with pytest.raises(ValueError, match="consumed topics must be distinct") as raised:
+        Settings(_env_file=None)
+
+    assert "kafka_topic_payment_refunded" in str(raised.value)
