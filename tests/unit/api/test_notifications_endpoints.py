@@ -205,3 +205,22 @@ async def test_should_ignore_an_unknown_query_parameter(client: AsyncClient) -> 
     response = await client.get("/notifications", params={"sort": "oldest"})
 
     assert response.status_code == 200
+
+
+async def test_should_describe_every_parameter_field_and_error_in_the_openapi_document(
+    client: AsyncClient,
+) -> None:
+    spec = (await client.get("/openapi.json")).json()
+    list_op = spec["paths"]["/notifications"]["get"]
+    get_op = spec["paths"]["/notifications/{notification_id}"]["get"]
+
+    for operation in (list_op, get_op):
+        assert operation["description"]
+        for parameter in operation["parameters"]:
+            assert parameter.get("description"), parameter["name"]
+    assert {"422", "503"} <= set(list_op["responses"])
+    assert {"404", "422", "503"} <= set(get_op["responses"])
+    schemas = spec["components"]["schemas"]
+    for name in ("NotificationResponse", "NotificationPageResponse", "ErrorResponse"):
+        for field, schema in schemas[name]["properties"].items():
+            assert schema.get("description"), f"{name}.{field}"

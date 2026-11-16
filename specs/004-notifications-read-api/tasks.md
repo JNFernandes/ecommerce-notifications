@@ -193,7 +193,7 @@ don't depend on Kafka.
 **Independent Test**: OpenAPI descriptions everywhere; CORS headers only for configured origins;
 reads work with the broker paused.
 
-- [ ] T007 [P] [US4] OpenAPI test in `tests/unit/api/test_notifications_endpoints.py`. For both
+- [X] T007 [P] [US4] OpenAPI test in `tests/unit/api/test_notifications_endpoints.py`. For both
   notification operations, every parameter has a non-empty `description`. Every property of the
   `NotificationResponse` and `NotificationPageResponse` schemas has a `description`. The 404, 422
   and 503 responses are documented on `GET /notifications/{notification_id}`, and 422 and 503 on
