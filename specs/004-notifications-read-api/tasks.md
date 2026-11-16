@@ -246,7 +246,7 @@ reads work with the broker paused.
     component test must use `assert_readable_over_http`;
   - extend "Where things are" with US-04;
   - remove "Active feature". Gate.
-- [ ] T013 Run quickstart.md steps 2–5 against ecommerce-infra on a free port (port 8000 may be
+- [X] T013 Run quickstart.md steps 2–5 against ecommerce-infra on a free port (port 8000 may be
   taken by your own instance). Use a throwaway database and consumer group, and clean them up.
   Record any deviation as a fix. Gate.
 
