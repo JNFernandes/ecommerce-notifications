@@ -129,7 +129,7 @@ context's customer, then the send log line.
     `InvalidCurrencyError`; a negative amount → `InvalidAmountError`; deterministic;
   - `tests/unit/domain/test_notification.py`: the factory's fields and type; naive `now` → error;
     the enum value list now ends with `PAYMENT_REFUNDED`. Gate.
-- [ ] T007 [P] [US1] Parser:
+- [X] T007 [P] [US1] Parser:
   - create `src/notifications/application/record_payment_refunded.py` with
     `PaymentRefundedCommand` only (frozen dataclass: `event_id`, `order_id`, `amount: Decimal`,
     `currency: str`);
