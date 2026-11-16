@@ -3,7 +3,6 @@
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
-from enum import StrEnum
 from uuid import UUID
 
 from notifications.application.ports import (
@@ -13,8 +12,11 @@ from notifications.application.ports import (
     NotificationSender,
     OrderContextRepository,
 )
+from notifications.application.recording import RecordOutcome, record_and_send
 from notifications.domain.notification import Notification
 from notifications.domain.order_context import OrderContext
+
+__all__ = ["OrderPlacedCommand", "RecordOrderReceivedService", "RecordOutcome"]
 
 logger = logging.getLogger("notifications.application")
 
@@ -27,15 +29,6 @@ class OrderPlacedCommand:
     order_id: UUID
     customer_id: UUID
     total_amount: Decimal
-
-
-class RecordOutcome(StrEnum):
-    """Result of recording an order placement."""
-
-    RECORDED = "RECORDED"
-    """A new notification was stored and sent."""
-    ALREADY_RECORDED = "ALREADY_RECORDED"
-    """The event was processed before; nothing new was stored or sent."""
 
 
 class RecordOrderReceivedService:
@@ -95,12 +88,4 @@ class RecordOrderReceivedService:
             source_event_id=command.event_id,
             now=now,
         )
-        if not await self._notifications.add(notification):
-            logger.info(
-                "Order placed event already recorded: sourceEvent=%s order=%s",
-                command.event_id,
-                command.order_id,
-            )
-            return RecordOutcome.ALREADY_RECORDED
-        self._sender.send(notification)
-        return RecordOutcome.RECORDED
+        return await record_and_send(notification, self._notifications, self._sender)

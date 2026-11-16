@@ -71,7 +71,7 @@ before; every existing US-01 test stays green (some are adapted to new names).
   pass unchanged. Add `tests/unit/messaging/test_events.py`: the envelope rejects `version`
   `true`/`1.0`/`"1"`, a missing `customerId` and a numeric UUID; ignores extra fields; reports
   every invalid field. Gate.
-- [ ] T004 [P] Application: create `src/notifications/application/recording.py` with
+- [X] T004 [P] Application: create `src/notifications/application/recording.py` with
   `RecordOutcome` (moved; re-exported from `record_order_received.py` so imports keep working)
   and `async record_and_send(notification, notifications, sender) -> RecordOutcome` (research R4):
   - `add`, then `send` if stored, then return `RECORDED`;

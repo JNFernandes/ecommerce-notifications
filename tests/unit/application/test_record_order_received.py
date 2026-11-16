@@ -114,7 +114,9 @@ async def test_should_log_the_redelivered_event_at_info_level(
     await fixture.service.handle(COMMAND)
 
     assert any(
-        f"already recorded: sourceEvent={COMMAND.event_id}" in record.getMessage()
+        record.getMessage()
+        == f"Event already recorded: type=ORDER_RECEIVED sourceEvent={COMMAND.event_id} "
+        f"order={COMMAND.order_id}"
         for record in caplog.records
     )
 
