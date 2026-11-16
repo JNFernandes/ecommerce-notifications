@@ -10,17 +10,17 @@ API is read-only, and the service publishes no events.
 The rules for this codebase are in the [constitution](.specify/memory/constitution.md).
 Architectural decisions are in [docs/adr](docs/adr/README.md).
 
-> **Status:** US-01 done. The service consumes `orders.order-placed` and records the "order
-> received" notification. The other topics and the notification queries come with their user
-> stories.
+> **Status:** US-01 and US-02 done. The service consumes `orders.order-placed`,
+> `orders.order-confirmed` and `orders.order-cancelled`. The refund notification (US-03) and the
+> notification queries (US-04) come with their user stories.
 
 ## Consumed topics
 
 | Topic | Notification | Notes | Status |
 |---|---|---|---|
 | `orders.order-placed` | `ORDER_RECEIVED` | Also stores the order's customer and total (`OrderContext`), see [ADR 0003](docs/adr/0003-consume-order-placed-for-refund-customer.md). Message: `Your order <orderId> for <totalAmount> was received.` | implemented (US-01) |
-| `orders.order-confirmed` | `ORDER_CONFIRMED` | | planned |
-| `orders.order-cancelled` | `ORDER_CANCELLED` | The message includes the cancellation reason when present. | planned |
+| `orders.order-confirmed` | `ORDER_CONFIRMED` | Customer from the event; no `OrderContext`. Message: `Your order <orderId> was confirmed.` | implemented (US-02) |
+| `orders.order-cancelled` | `ORDER_CANCELLED` | Customer from the event; no `OrderContext`. Message: `Your order <orderId> was cancelled: <reason>.`, or `Your order <orderId> was cancelled.` without a reason. The reason is trimmed, kept on one line, loses one trailing period, and is cut at 500 characters (`…`); a `reason` that is not a string or `null` makes the message invalid. | implemented (US-02) |
 | `payments.payment-refunded` | `PAYMENT_REFUNDED` | The event has no `customerId`; the customer comes from the `OrderContext`. | planned |
 
 Payloads are defined in
@@ -29,6 +29,11 @@ every event contract.
 
 ### Processing guarantees
 
+- **One consumer, one routing table.** A single consumer subscribes to every topic above and
+  routes each message by topic to its parser and exactly one application service method
+  (`build_routing_table` in `src/notifications/main.py`). Adding a topic is one registration.
+  The three order topics are independent: a confirmation or cancellation is recorded even if
+  the order's placement was never received.
 - **One notification per event.** A notification is stored under a unique index on its source
   event id, so a redelivered event changes nothing and is not an error
   ([ADR 0002](docs/adr/0002-idempotency-without-transactions.md)). The simulated send (a log line
@@ -127,6 +132,9 @@ All settings come from environment variables. The defaults match `ecommerce-infr
 | `MONGODB_DATABASE` | `notifications` | Database name |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Comma-separated Kafka brokers |
 | `KAFKA_GROUP_ID` | `notifications-service` | Consumer group id |
+| `KAFKA_TOPIC_ORDER_PLACED` | `orders.order-placed` | Topic of `OrderPlaced` events (`ORDER_RECEIVED`) |
+| `KAFKA_TOPIC_ORDER_CONFIRMED` | `orders.order-confirmed` | Topic of `OrderConfirmed` events (`ORDER_CONFIRMED`) |
+| `KAFKA_TOPIC_ORDER_CANCELLED` | `orders.order-cancelled` | Topic of `OrderCancelled` events (`ORDER_CANCELLED`) |
 | `CORS_ALLOWED_ORIGINS` | empty | Comma-separated origins allowed to call the API (`GET` only) |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 | `CONSUMER_RETRY_MAX_ATTEMPTS` | `5` | Attempts per consumed message, the first included (`>= 1`; `1` means no retries) |
@@ -137,6 +145,9 @@ All settings come from environment variables. The defaults match `ecommerce-infr
 The pause before attempt `n` (n ≥ 2) is `min(BASE_DELAY × MULTIPLIER^(n-2), MAX_DELAY)`. With the
 defaults the pauses are 1, 2, 4 and 8 seconds, about 15 seconds per failing message. An invalid
 value stops the service at startup with an error naming the variable.
+
+The topic defaults are the contract names in `ecommerce-infra/docs/events.md`; override them only
+for tests or a renamed environment. The three names must differ.
 
 ### Docker
 

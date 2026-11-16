@@ -294,7 +294,7 @@ processed; one consumer for all three topics.
 
 ## Phase 6: Polish & documentation
 
-- [ ] T022 [P] Update `README.md`:
+- [X] T022 [P] Update `README.md`:
   - Consumed topics table: `orders.order-confirmed` and `orders.order-cancelled` → implemented
     (US-02), with their message templates;
   - add a short "routing table" sentence to Processing guarantees;
