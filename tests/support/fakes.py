@@ -57,6 +57,12 @@ class InMemoryOrderContextRepository:
             self.by_order[context.order_id] = context
         return existing
 
+    async def get(self, order_id: UUID) -> OrderContext | None:
+        """Return the stored context of ``order_id``, if any."""
+        if self._error is not None:
+            raise self._error
+        return self.by_order.get(order_id)
+
 
 class RecordingSender:
     """Notification sender that records what it sent."""

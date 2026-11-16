@@ -61,6 +61,11 @@ class MongoOrderContextRepository:
             # duplicate key. Retrying once finds the inserted document (MongoDB upsert pattern).
             return await self._upsert(context)
 
+    async def get(self, order_id: UUID) -> OrderContext | None:
+        """Return the context recorded for ``order_id``, or ``None``. Read-only."""
+        document = await self._collection.find_one({"_id": str(order_id)})
+        return None if document is None else from_document(document)
+
     async def _upsert(self, context: OrderContext) -> OrderContext | None:
         document = to_document(context)
         order_id = document.pop("_id")

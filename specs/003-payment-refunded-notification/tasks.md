@@ -88,7 +88,7 @@ prerequisites come first (Phases 1–2), each in that layer order.
   Tests in `tests/unit/messaging/test_events.py`: a payload without `customerId` is valid for
   `EventEnvelope` and invalid for `OrderEventEnvelope`. All existing envelope and order parser
   tests stay green. Gate.
-- [ ] T005 [P] Order context lookup, through the port, the fake and the adapter together:
+- [X] T005 [P] Order context lookup, through the port, the fake and the adapter together:
   - in `src/notifications/application/ports.py`, add
     `async get(order_id: UUID) -> OrderContext | None` to `OrderContextRepository`;
   - in `tests/support/fakes.py`, add `InMemoryOrderContextRepository.get`;

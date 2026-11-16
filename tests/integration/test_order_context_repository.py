@@ -85,3 +85,25 @@ async def test_should_store_one_context_when_two_writers_race_for_the_same_order
 
     assert await database["order_context"].count_documents({"_id": str(order_id)}) == 1
     assert results.count(None) == 1
+
+
+async def test_should_read_back_the_stored_context_exactly(
+    database: AsyncDatabase[Document],
+) -> None:
+    repository = MongoOrderContextRepository(database)
+    order_id = uuid4()
+    stored = _context(order_id, total="123456789012345678.123456789")
+    await repository.add_if_absent(stored)
+
+    found = await repository.get(order_id)
+
+    assert found == stored
+    assert found is not None
+    assert found.total_amount == Decimal("123456789012345678.123456789")
+    assert found.recorded_at.utcoffset() is not None
+
+
+async def test_should_find_no_context_for_an_unknown_order(
+    database: AsyncDatabase[Document],
+) -> None:
+    assert await MongoOrderContextRepository(database).get(uuid4()) is None
