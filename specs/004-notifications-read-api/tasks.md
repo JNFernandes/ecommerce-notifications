@@ -58,7 +58,7 @@ documented, CORS, works without Kafka. They are inside the single backlog item U
   - `get` found;
   - `get` missing → `NotificationNotFoundError` naming the id;
   - a reader error propagates. Gate.
-- [ ] T002 [P] Indexes v3, in `src/notifications/infrastructure/indexes.py`:
+- [X] T002 [P] Indexes v3, in `src/notifications/infrastructure/indexes.py`:
   - `INDEX_SCHEMA_VERSION = 3`, with the history line "3: US-04 read indexes…";
   - replace `NOTIFICATIONS_CUSTOMER_CREATED_INDEX` with `ix_notifications_customer_created_id`
     (`customerId 1, createdAt -1, _id -1`);
