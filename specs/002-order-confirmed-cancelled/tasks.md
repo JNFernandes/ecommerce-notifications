@@ -59,7 +59,7 @@ before; every existing US-01 test stays green (some are adapted to new names).
 
   Tests in `tests/unit/domain/test_notification.py`: the enum values exist with these exact
   strings; `order_received` still produces the same notification. Gate.
-- [ ] T003 [P] Parsers: create `src/notifications/messaging/events.py` (research R2):
+- [X] T003 [P] Parsers: create `src/notifications/messaging/events.py` (research R2):
   - move `_json_string`, `_json_integer`, `_json_number` and `JsonUuid` from `order_placed.py`;
   - add `OrderEventEnvelope` (frozen, `extra="ignore"`, `use_attribute_docstrings=True`; fields
     `eventId`, `aggregateId`, `occurredAt`, `version`, `customerId`, each with a field docstring);

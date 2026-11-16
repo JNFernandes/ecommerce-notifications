@@ -1,73 +1,29 @@
 """Consumer for ``orders.order-placed``: parse, validate and call one application service.
 
-Contract: ``ecommerce-infra/docs/events.md`` (Orders events / ``orders.order-placed``). Payloads
-are decoded with ``decode_json_object`` so amounts stay exact (research R1), then validated in
-Python mode. The ``BeforeValidator`` guards reject values of the wrong JSON type that Pydantic's
-lax mode would otherwise coerce (``true`` or ``1.0`` as ``version``, ``"129.90"`` as an amount).
+Contract: ``ecommerce-infra/docs/events.md`` (Orders events / ``orders.order-placed``). The
+envelope, the JSON-type guards and the parsing are shared with the other order events
+(``notifications.messaging.events``).
 """
 
 from decimal import Decimal
-from typing import Annotated, Literal
-from uuid import UUID
+from typing import Annotated
 
-from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
+from pydantic import BeforeValidator, Field
 
 from notifications.application.record_order_received import (
     OrderPlacedCommand,
     RecordOrderReceivedService,
 )
-from notifications.messaging.messages import (
-    ConsumedMessage,
-    InvalidMessageError,
-    decode_json_object,
-)
+from notifications.messaging.events import OrderEventEnvelope, json_number, parse_event
+from notifications.messaging.messages import ConsumedMessage
 
 ORDER_PLACED_TOPIC = "orders.order-placed"
 
 
-def _json_string(value: object) -> object:
-    if not isinstance(value, str):
-        raise ValueError("must be a JSON string")
-    return value
-
-
-def _json_integer(value: object) -> object:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError("must be a JSON integer")
-    return value
-
-
-def _json_number(value: object) -> object:
-    if isinstance(value, bool) or not isinstance(value, int | Decimal):
-        raise ValueError("must be a JSON number")
-    return Decimal(value)
-
-
-type JsonUuid = Annotated[UUID, BeforeValidator(_json_string)]
-
-
-class OrderPlacedEvent(BaseModel):
+class OrderPlacedEvent(OrderEventEnvelope):
     """An ``orders.order-placed`` event, published by Orders after an order is saved."""
 
-    model_config = ConfigDict(frozen=True, extra="ignore", use_attribute_docstrings=True)
-
-    event_id: JsonUuid = Field(alias="eventId")
-    """Unique id of this event; the idempotency key (stored as the notification's
-    ``sourceEventId``)."""
-
-    aggregate_id: JsonUuid = Field(alias="aggregateId")
-    """Id of the order that was placed (for ``orders.*`` events the aggregate is the order)."""
-
-    occurred_at: Annotated[AwareDatetime, BeforeValidator(_json_string)] = Field(alias="occurredAt")
-    """When the order was placed, ISO 8601 with a timezone."""
-
-    version: Annotated[Literal[1], BeforeValidator(_json_integer)]
-    """Schema version of the payload; only version 1 exists."""
-
-    customer_id: JsonUuid = Field(alias="customerId")
-    """The customer who placed the order."""
-
-    total_amount: Annotated[Decimal, BeforeValidator(_json_number), Field(ge=0)] = Field(
+    total_amount: Annotated[Decimal, BeforeValidator(json_number), Field(ge=0)] = Field(
         alias="totalAmount"
     )
     """Sum of all item subtotals, as an exact decimal (no currency in this event)."""
@@ -89,15 +45,7 @@ def parse_order_placed(message: ConsumedMessage) -> OrderPlacedEvent:
         InvalidMessageError: if the value is not a JSON object or breaks the contract; the reason
             lists every invalid field as ``field: problem``.
     """
-    payload = decode_json_object(message.value)
-    try:
-        return OrderPlacedEvent.model_validate(payload)
-    except ValidationError as exc:
-        problems = "; ".join(
-            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
-            for error in exc.errors()
-        )
-        raise InvalidMessageError(problems) from exc
+    return parse_event(message, OrderPlacedEvent)
 
 
 class OrderPlacedHandler:
