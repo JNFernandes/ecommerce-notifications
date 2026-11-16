@@ -68,3 +68,21 @@ class RecordOrderStatusService:
             now=self._clock.now(),
         )
         return await record_and_send(notification, self._notifications, self._sender)
+
+    async def record_cancelled(self, command: OrderCancelledCommand) -> RecordOutcome:
+        """Store and send the ``ORDER_CANCELLED`` notification; a redelivery changes nothing.
+
+        The domain decides how the reason is shown (or that there is none).
+
+        Raises:
+            Exception: any repository failure, unchanged, so that the consumer can retry.
+        """
+        notification = Notification.order_cancelled(
+            notification_id=self._ids.new_id(),
+            customer_id=command.customer_id,
+            order_id=command.order_id,
+            reason=command.reason,
+            source_event_id=command.event_id,
+            now=self._clock.now(),
+        )
+        return await record_and_send(notification, self._notifications, self._sender)

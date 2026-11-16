@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 
 from notifications.application.record_order_status import (
+    OrderCancelledCommand,
     OrderConfirmedCommand,
     RecordOrderStatusService,
 )
@@ -68,5 +69,59 @@ async def test_should_propagate_a_repository_failure_for_a_confirmation() -> Non
 
     with pytest.raises(ConnectionError):
         await fixture.service.record_confirmed(CONFIRMED)
+
+    assert fixture.sender.sent == []
+
+
+def _cancelled(reason: str | None) -> OrderCancelledCommand:
+    return OrderCancelledCommand(
+        event_id=UUID("6a1b2c3d-0000-4000-8000-000000000202"),
+        order_id=ORDER_ID,
+        customer_id=CUSTOMER_ID,
+        reason=reason,
+    )
+
+
+async def test_should_store_and_send_the_order_cancelled_notification_with_its_reason() -> None:
+    fixture = Fixture()
+    command = _cancelled("payment failed: amount exceeds the threshold")
+
+    outcome = await fixture.service.record_cancelled(command)
+
+    assert outcome is RecordOutcome.RECORDED
+    stored = fixture.notifications.by_source_event[command.event_id]
+    assert stored.type is NotificationType.ORDER_CANCELLED
+    assert stored.customer_id == CUSTOMER_ID
+    assert stored.message == (
+        f"Your order {ORDER_ID} was cancelled: payment failed: amount exceeds the threshold."
+    )
+    assert fixture.sender.sent == [stored]
+
+
+async def test_should_use_the_generic_text_for_a_cancellation_without_a_reason() -> None:
+    fixture = Fixture()
+    command = _cancelled(None)
+
+    await fixture.service.record_cancelled(command)
+
+    stored = fixture.notifications.by_source_event[command.event_id]
+    assert stored.message == f"Your order {ORDER_ID} was cancelled."
+
+
+async def test_should_not_send_a_redelivered_cancellation_again() -> None:
+    fixture = Fixture()
+    await fixture.service.record_cancelled(_cancelled(None))
+
+    outcome = await fixture.service.record_cancelled(_cancelled(None))
+
+    assert outcome is RecordOutcome.ALREADY_RECORDED
+    assert len(fixture.sender.sent) == 1
+
+
+async def test_should_propagate_a_repository_failure_for_a_cancellation() -> None:
+    fixture = Fixture(InMemoryNotificationRepository(error=ConnectionError("mongo down")))
+
+    with pytest.raises(ConnectionError):
+        await fixture.service.record_cancelled(_cancelled("x"))
 
     assert fixture.sender.sent == []

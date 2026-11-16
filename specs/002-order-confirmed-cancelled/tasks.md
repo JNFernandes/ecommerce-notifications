@@ -235,7 +235,7 @@ exist with the exact two messages.
     `reason: Value error, must be a JSON string or null`;
   - a missing `customerId`;
   - bad JSON. Gate.
-- [ ] T015 [US2] Application (depends on T013, T014): add `record_cancelled(command) ->
+- [X] T015 [US2] Application (depends on T013, T014): add `record_cancelled(command) ->
   RecordOutcome` to `RecordOrderStatusService` in
   `src/notifications/application/record_order_status.py`.
 
