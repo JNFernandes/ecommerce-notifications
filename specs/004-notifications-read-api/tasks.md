@@ -198,7 +198,7 @@ reads work with the broker paused.
   `NotificationResponse` and `NotificationPageResponse` schemas has a `description`. The 404, 422
   and 503 responses are documented on `GET /notifications/{notification_id}`, and 422 and 503 on
   `GET /notifications`. Gate.
-- [ ] T008 [P] [US4] CORS tests in the new `tests/unit/api/test_notifications_cors.py`:
+- [X] T008 [P] [US4] CORS tests in the new `tests/unit/api/test_notifications_cors.py`:
   - with `cors_allowed_origins=["http://localhost:5173"]`, a `GET /notifications` with that
     `Origin` gets `access-control-allow-origin: http://localhost:5173`;
   - `Origin: http://evil.example` gets no such header;
