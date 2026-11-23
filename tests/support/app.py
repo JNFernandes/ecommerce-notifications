@@ -1,5 +1,11 @@
-"""Run the real application (lifespan included) against test containers."""
+"""Run the real application (lifespan included) against test containers.
 
+Access tokens: ``TOKENS`` stands in for ecommerce-identity. Its public key is served by one local
+JWKS endpoint shared by the whole session (``shared_jwks_server``), which ``component_settings``
+configures as ``IDENTITY_JWKS_URL``. The readable-over-HTTP helpers send an admin token.
+"""
+
+import functools
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -12,8 +18,31 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from notifications.infrastructure.settings import Settings
 from notifications.main import create_app
+from tests.support.tokens import JwksServer, TokenIssuer
 
 type Document = dict[str, object]
+
+TOKENS = TokenIssuer(kid="component-tests")
+"""Signs the access tokens of the component tests."""
+
+
+@functools.cache
+def shared_jwks_server() -> JwksServer:
+    """The session's JWKS endpoint serving the ``TOKENS`` key, started on first use.
+
+    It runs in a daemon thread until the test process ends.
+    """
+    return JwksServer([TOKENS.public_jwk()]).start()
+
+
+def bearer(token: str) -> dict[str, str]:
+    """Return the ``Authorization`` header carrying ``token``."""
+    return {"Authorization": f"Bearer {token}"}
+
+
+def admin_headers() -> dict[str, str]:
+    """Return headers with a fresh ADMIN token (sees every notification)."""
+    return bearer(TOKENS.admin_token())
 
 
 @dataclass(frozen=True)
@@ -31,8 +60,12 @@ class RunningApp:
 
 
 def component_settings(mongodb_url: str, kafka_bootstrap: str, **overrides: object) -> Settings:
-    """Settings for one test: a fresh database and consumer group, fast retries (overridable)."""
+    """Settings for one test: a fresh database and consumer group, fast retries (overridable).
+
+    Tokens are verified with the keys of ``shared_jwks_server`` (``TOKENS``).
+    """
     values: dict[str, object] = {
+        "identity_jwks_url": shared_jwks_server().url,
         "mongodb_uri": mongodb_url,
         "mongodb_database": f"ct_{uuid4().hex}",
         "kafka_bootstrap_servers": kafka_bootstrap,
@@ -69,8 +102,11 @@ _API_FIELDS = ("customerId", "orderId", "type", "channel", "message", "status", 
 
 
 async def assert_readable_over_http(app: RunningApp, document: Document) -> None:
-    """Constitution VII: a stored notification is also readable through the read API, unchanged."""
-    response = await app.http.get(f"/notifications/{document['_id']}")
+    """Constitution VII: a stored notification is also readable through the read API, unchanged.
+
+    Reads as an admin, who may see every customer's notifications.
+    """
+    response = await app.http.get(f"/notifications/{document['_id']}", headers=admin_headers())
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["id"] == document["_id"]
