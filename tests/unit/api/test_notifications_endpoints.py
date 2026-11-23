@@ -14,6 +14,7 @@ from notifications.application.query_notifications import (
     NotificationFilters,
     NotificationQueryService,
 )
+from notifications.domain.access import AccessScope
 from notifications.domain.notification import Notification, NotificationType
 from tests.support.fakes import FakeNotificationReader
 
@@ -92,7 +93,7 @@ async def test_should_pass_the_filters_and_paging_to_the_service(
     expected = NotificationFilters(
         customer_id=CUSTOMER, order_id=order, type=NotificationType.PAYMENT_REFUNDED
     )
-    assert reader.calls[0] == ("find_page", (expected, 5, 0))
+    assert reader.calls[0] == ("find_page", (AccessScope.all(), expected, 5, 0))
     assert response.json()["total"] == 1
 
 
@@ -188,7 +189,7 @@ async def test_should_accept_uppercase_uuids_and_query_them_in_lowercase(
 
     assert by_path.status_code == 200
     assert by_filter.json()["total"] == 1
-    assert ("find_by_id", wanted.id) in reader.calls
+    assert ("find_by_id", (AccessScope.all(), wanted.id)) in reader.calls
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])

@@ -12,6 +12,7 @@ from notifications.application.query_notifications import (
     NotificationFilters,
     NotificationQueryService,
 )
+from notifications.domain.access import AccessScope
 from notifications.domain.notification import (
     Notification,
     NotificationChannel,
@@ -113,6 +114,7 @@ async def list_notifications(
 ) -> NotificationPageResponse:
     """Return one page of matching notifications and the total count."""
     page = await service.list(
+        AccessScope.all(),
         NotificationFilters(customer_id=customer_id, order_id=order_id, type=notification_type),
         limit,
         offset,
@@ -145,4 +147,4 @@ async def get_notification(
     notification_id: Annotated[UUID, Path(description="Id of the notification.")],
 ) -> NotificationResponse:
     """Return one notification, or 404 when it does not exist."""
-    return NotificationResponse.from_domain(await service.get(notification_id))
+    return NotificationResponse.from_domain(await service.get(AccessScope.all(), notification_id))

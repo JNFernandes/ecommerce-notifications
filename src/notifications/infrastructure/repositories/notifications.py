@@ -9,6 +9,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import DuplicateKeyError
 
 from notifications.application.query_notifications import NotificationFilters
+from notifications.domain.access import AccessScope
 from notifications.domain.notification import (
     Notification,
     NotificationChannel,
@@ -80,23 +81,27 @@ class MongoNotificationRepository:
         return True
 
     async def find_page(
-        self, filters: NotificationFilters, limit: int, offset: int
+        self, scope: AccessScope, filters: NotificationFilters, limit: int, offset: int
     ) -> list[Notification]:
-        """Return up to ``limit`` matching notifications after ``offset``, newest first.
+        """Return up to ``limit`` matching notifications in ``scope`` after ``offset``.
 
         Sorted by ``createdAt`` then ``_id``, both descending; the read indexes of schema
         version 3 serve this order, so MongoDB never sorts in memory.
         """
-        cursor = self._collection.find(_query(filters)).sort(NEWEST_FIRST).skip(offset).limit(limit)
+        query = _query(scope, filters)
+        cursor = self._collection.find(query).sort(NEWEST_FIRST).skip(offset).limit(limit)
         return [from_document(document) async for document in cursor]
 
-    async def count(self, filters: NotificationFilters) -> int:
-        """Return the exact number of notifications matching ``filters``."""
-        return await self._collection.count_documents(_query(filters))
+    async def count(self, scope: AccessScope, filters: NotificationFilters) -> int:
+        """Return the exact number of notifications in ``scope`` matching ``filters``."""
+        return await self._collection.count_documents(_query(scope, filters))
 
-    async def find_by_id(self, notification_id: UUID) -> Notification | None:
-        """Return the notification with this id, or ``None``."""
-        document = await self._collection.find_one({"_id": str(notification_id)})
+    async def find_by_id(self, scope: AccessScope, notification_id: UUID) -> Notification | None:
+        """Return the notification with this id if it is in ``scope``, or ``None``."""
+        query: MongoDocument = {"_id": str(notification_id)}
+        if scope.customer_id is not None:
+            query["customerId"] = str(scope.customer_id)
+        document = await self._collection.find_one(query)
         return None if document is None else from_document(document)
 
 
@@ -104,10 +109,17 @@ NEWEST_FIRST: list[tuple[str, int]] = [("createdAt", DESCENDING), ("_id", DESCEN
 """Read API order: creation time descending, id descending as tie-break."""
 
 
-def _query(filters: NotificationFilters) -> MongoDocument:
-    """Build the MongoDB filter: every given filter must match (AND)."""
+def _query(scope: AccessScope, filters: NotificationFilters) -> MongoDocument:
+    """Build the MongoDB filter: the scope and every given filter must match (AND).
+
+    A customer scope always restricts ``customerId``. A customer filter for anyone else then
+    matches nothing (defence in depth: the service already answers an empty page without a query).
+    """
     query: MongoDocument = {}
-    if filters.customer_id is not None:
+    if scope.customer_id is not None:
+        conflicting = filters.customer_id not in (None, scope.customer_id)
+        query["customerId"] = {"$in": []} if conflicting else str(scope.customer_id)
+    elif filters.customer_id is not None:
         query["customerId"] = str(filters.customer_id)
     if filters.order_id is not None:
         query["orderId"] = str(filters.order_id)
