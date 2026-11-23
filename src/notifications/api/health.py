@@ -1,10 +1,11 @@
-"""Liveness and readiness endpoints."""
+"""Liveness and readiness endpoints: public, they never need an access token."""
 
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from notifications.api.auth import PUBLIC
 from notifications.application.health import ComponentStatus, ConsumerState, HealthService
 
 
@@ -40,11 +41,15 @@ HealthServiceDependency = Annotated[HealthService, Depends(get_health_service)]
 
 router = APIRouter(prefix="/health", tags=["health"])
 
+_PUBLIC_EXTRA: dict[str, object] = {"x-public": True}
+
 
 @router.get(
     "/live",
     summary="Liveness probe",
-    description="Answers `UP` whenever the process can serve HTTP requests.",
+    description="Answers `UP` whenever the process can serve HTTP requests. Public.",
+    dependencies=[PUBLIC],
+    openapi_extra=_PUBLIC_EXTRA,
 )
 def liveness(service: HealthServiceDependency) -> LivenessResponse:
     """Report that the process is alive."""
@@ -57,8 +62,10 @@ def liveness(service: HealthServiceDependency) -> LivenessResponse:
     description=(
         "Answers 200 when MongoDB is reachable and 503 otherwise. The Kafka consumer state is "
         "reported but never makes the service unready, so the service stays ready while Kafka "
-        "is down."
+        "is down. Public: it never needs a token, and Identity never makes the service unready."
     ),
+    dependencies=[PUBLIC],
+    openapi_extra=_PUBLIC_EXTRA,
     responses={status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ReadinessResponse}},
 )
 async def readiness(service: HealthServiceDependency, response: Response) -> ReadinessResponse:

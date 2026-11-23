@@ -1,4 +1,9 @@
-"""Read-only notification endpoints (US-04). Routers do I/O only: one service call per request."""
+"""Read-only notification endpoints (US-04, scoped by US-05).
+
+Routers do I/O only: one service call per request. Every route requires a ``CUSTOMER`` or ``ADMIN``
+token and hands the caller's ``AccessScope`` to the service, which keeps a customer to their own
+notifications.
+"""
 
 from datetime import datetime
 from typing import Annotated, Self
@@ -7,11 +12,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Path, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from notifications.api.auth import ScopeDependency, require_roles
 from notifications.api.errors import ErrorResponse
 from notifications.application.query_notifications import (
     NotificationFilters,
     NotificationQueryService,
 )
+from notifications.domain.access import Role
 from notifications.domain.notification import (
     Notification,
     NotificationChannel,
@@ -78,6 +85,28 @@ QueryServiceDependency = Annotated[
     NotificationQueryService, Depends(get_notification_query_service)
 ]
 
+READERS = require_roles(Role.CUSTOMER, Role.ADMIN)
+"""Who may read notifications: a customer (their own only) or an admin (all)."""
+
+_READER_EXTRA: dict[str, object] = {"x-roles": [role.value for role in READERS.roles]}
+
+_AUTH_RESPONSES: dict[int | str, dict[str, object]] = {
+    status.HTTP_401_UNAUTHORIZED: {
+        "model": ErrorResponse,
+        "description": "The bearer access token is missing or invalid (always the same body).",
+    },
+    status.HTTP_403_FORBIDDEN: {
+        "model": ErrorResponse,
+        "description": "The token is valid but grants no access to notifications.",
+    },
+}
+
+_UNAVAILABLE: dict[str, object] = {
+    "model": ErrorResponse,
+    "description": "The database is unreachable, or no signing keys are available to verify the "
+    "token.",
+}
+
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
@@ -86,17 +115,17 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
     summary="List notifications",
     description=(
         "Notifications newest first (creation time descending, id descending as tie-break), "
-        "filtered by any combination of customer, order and type, one page at a time."
+        "filtered by any combination of customer, order and type, one page at a time. A customer "
+        "only ever sees their own notifications (another customer's id gives an empty page); an "
+        "admin sees all."
     ),
-    responses={
-        status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "model": ErrorResponse,
-            "description": "The database is unreachable.",
-        }
-    },
+    dependencies=[Depends(READERS)],
+    openapi_extra=_READER_EXTRA,
+    responses={**_AUTH_RESPONSES, status.HTTP_503_SERVICE_UNAVAILABLE: _UNAVAILABLE},
 )
 async def list_notifications(
     service: QueryServiceDependency,
+    scope: ScopeDependency,
     customer_id: Annotated[
         UUID | None, Query(alias="customerId", description="Only this customer's notifications.")
     ] = None,
@@ -113,6 +142,7 @@ async def list_notifications(
 ) -> NotificationPageResponse:
     """Return one page of matching notifications and the total count."""
     page = await service.list(
+        scope,
         NotificationFilters(customer_id=customer_id, order_id=order_id, type=notification_type),
         limit,
         offset,
@@ -128,21 +158,25 @@ async def list_notifications(
 @router.get(
     "/{notification_id}",
     summary="Get one notification",
-    description="The notification with this id.",
+    description=(
+        "The notification with this id. A customer asking for another customer's notification "
+        "gets the same 404 as for an unknown id."
+    ),
+    dependencies=[Depends(READERS)],
+    openapi_extra=_READER_EXTRA,
     responses={
+        **_AUTH_RESPONSES,
         status.HTTP_404_NOT_FOUND: {
             "model": ErrorResponse,
-            "description": "No notification has this id.",
+            "description": "No notification with this id is visible to the caller.",
         },
-        status.HTTP_503_SERVICE_UNAVAILABLE: {
-            "model": ErrorResponse,
-            "description": "The database is unreachable.",
-        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: _UNAVAILABLE,
     },
 )
 async def get_notification(
     service: QueryServiceDependency,
+    scope: ScopeDependency,
     notification_id: Annotated[UUID, Path(description="Id of the notification.")],
 ) -> NotificationResponse:
-    """Return one notification, or 404 when it does not exist."""
-    return NotificationResponse.from_domain(await service.get(notification_id))
+    """Return one notification, or 404 when it is unknown or outside the caller's scope."""
+    return NotificationResponse.from_domain(await service.get(scope, notification_id))

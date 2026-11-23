@@ -23,6 +23,10 @@ def test_should_use_local_infrastructure_defaults_when_no_environment_is_set(
         "KAFKA_TOPIC_ORDER_CONFIRMED",
         "KAFKA_TOPIC_ORDER_CANCELLED",
         "KAFKA_TOPIC_PAYMENT_REFUNDED",
+        "IDENTITY_JWKS_URL",
+        "JWT_ISSUER",
+        "JWT_AUDIENCE",
+        "JWT_CLOCK_TOLERANCE_SECONDS",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -44,6 +48,10 @@ def test_should_use_local_infrastructure_defaults_when_no_environment_is_set(
     assert settings.kafka_topic_order_confirmed == "orders.order-confirmed"
     assert settings.kafka_topic_order_cancelled == "orders.order-cancelled"
     assert settings.kafka_topic_payment_refunded == "payments.payment-refunded"
+    assert settings.identity_jwks_url == "http://localhost:3001/.well-known/jwks.json"
+    assert settings.jwt_issuer == "http://localhost:3001"
+    assert settings.jwt_audience == "ecommerce"
+    assert settings.jwt_clock_tolerance_seconds == 5
 
 
 def test_should_read_comma_separated_cors_origins_from_the_environment(
@@ -142,3 +150,46 @@ def test_should_reject_a_refund_topic_equal_to_an_order_topic(
         Settings(_env_file=None)
 
     assert "kafka_topic_payment_refunded" in str(raised.value)
+
+
+def test_should_read_the_token_settings_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("IDENTITY_JWKS_URL", "https://identity.example/.well-known/jwks.json")
+    monkeypatch.setenv("JWT_ISSUER", "https://identity.example")
+    monkeypatch.setenv("JWT_AUDIENCE", "shop")
+    monkeypatch.setenv("JWT_CLOCK_TOLERANCE_SECONDS", "300")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.identity_jwks_url == "https://identity.example/.well-known/jwks.json"
+    assert settings.jwt_issuer == "https://identity.example"
+    assert settings.jwt_audience == "shop"
+    assert settings.jwt_clock_tolerance_seconds == 300
+
+
+def test_should_accept_a_zero_clock_tolerance(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("JWT_CLOCK_TOLERANCE_SECONDS", "0")
+
+    assert Settings(_env_file=None).jwt_clock_tolerance_seconds == 0
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "field"),
+    [
+        ("IDENTITY_JWKS_URL", "ftp://identity.example/jwks.json", "identity_jwks_url"),
+        ("IDENTITY_JWKS_URL", "localhost:3001/jwks.json", "identity_jwks_url"),
+        ("IDENTITY_JWKS_URL", "http://", "identity_jwks_url"),
+        ("JWT_ISSUER", "", "jwt_issuer"),
+        ("JWT_AUDIENCE", "", "jwt_audience"),
+        ("JWT_CLOCK_TOLERANCE_SECONDS", "-1", "jwt_clock_tolerance_seconds"),
+        ("JWT_CLOCK_TOLERANCE_SECONDS", "301", "jwt_clock_tolerance_seconds"),
+    ],
+)
+def test_should_reject_an_invalid_token_setting(
+    monkeypatch: pytest.MonkeyPatch, variable: str, value: str, field: str
+) -> None:
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(ValueError, match=field):
+        Settings(_env_file=None)

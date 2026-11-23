@@ -10,15 +10,28 @@ from httpx import ASGITransport, AsyncClient
 from pymongo.errors import ServerSelectionTimeoutError
 
 from notifications.api.app import build_api
+from notifications.application.auth import Principal
 from notifications.application.query_notifications import (
     NotificationFilters,
     NotificationQueryService,
 )
+from notifications.domain.access import AccessScope, Role
 from notifications.domain.notification import Notification, NotificationType
-from tests.support.fakes import FakeNotificationReader
+from tests.support.fakes import FakeAccessTokenVerifier, FakeNotificationReader
 
 START = datetime(2026, 11, 16, 10, 0, 0, 123_000, tzinfo=UTC)
 CUSTOMER = UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6")
+OTHER_CUSTOMER = UUID("9b2e1c4d-0f6a-4e8b-a1d2-7c3f5e9a0b11")
+PRINCIPALS = {
+    "admin": Principal(subject="a", roles=frozenset({Role.ADMIN})),
+    "customer": Principal(subject="c", customer_id=CUSTOMER, roles=frozenset({Role.CUSTOMER})),
+    "no-role": Principal(subject="n", customer_id=CUSTOMER),
+}
+INVALID_TOKEN_BODY = b'{"detail":"invalid or missing access token"}'
+
+
+def _bearer(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _notification(minutes: int, customer: UUID = CUSTOMER) -> Notification:
@@ -33,10 +46,17 @@ def _notification(minutes: int, customer: UUID = CUSTOMER) -> Notification:
     )
 
 
-async def _client(reader: FakeNotificationReader) -> AsyncClient:
+async def _client(
+    reader: FakeNotificationReader,
+    caller: str | None = "admin",
+    verifier: FakeAccessTokenVerifier | None = None,
+) -> AsyncClient:
+    """A client of the API over ``reader``; sending the ``caller`` token (``None``: no header)."""
     app = build_api(cors_allowed_origins=[])
     app.state.notification_query_service = NotificationQueryService(reader)
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    app.state.access_token_verifier = verifier or FakeAccessTokenVerifier(PRINCIPALS)
+    headers = {} if caller is None else _bearer(caller)
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=headers)
 
 
 @pytest.fixture
@@ -92,7 +112,7 @@ async def test_should_pass_the_filters_and_paging_to_the_service(
     expected = NotificationFilters(
         customer_id=CUSTOMER, order_id=order, type=NotificationType.PAYMENT_REFUNDED
     )
-    assert reader.calls[0] == ("find_page", (expected, 5, 0))
+    assert reader.calls[0] == ("find_page", (AccessScope.all(), expected, 5, 0))
     assert response.json()["total"] == 1
 
 
@@ -188,7 +208,7 @@ async def test_should_accept_uppercase_uuids_and_query_them_in_lowercase(
 
     assert by_path.status_code == 200
     assert by_filter.json()["total"] == 1
-    assert ("find_by_id", wanted.id) in reader.calls
+    assert ("find_by_id", (AccessScope.all(), wanted.id)) in reader.calls
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
@@ -218,9 +238,122 @@ async def test_should_describe_every_parameter_field_and_error_in_the_openapi_do
         assert operation["description"]
         for parameter in operation["parameters"]:
             assert parameter.get("description"), parameter["name"]
-    assert {"422", "503"} <= set(list_op["responses"])
-    assert {"404", "422", "503"} <= set(get_op["responses"])
+    assert {"401", "403", "422", "503"} <= set(list_op["responses"])
+    assert {"401", "403", "404", "422", "503"} <= set(get_op["responses"])
     schemas = spec["components"]["schemas"]
     for name in ("NotificationResponse", "NotificationPageResponse", "ErrorResponse"):
         for field, schema in schemas[name]["properties"].items():
             assert schema.get("description"), f"{name}.{field}"
+
+
+async def test_should_pass_a_customer_scope_to_the_service_for_a_customer_token(
+    reader: FakeNotificationReader,
+) -> None:
+    wanted = reader.notifications[0]
+    async with await _client(reader, caller="customer") as http:
+        await http.get("/notifications")
+        await http.get(f"/notifications/{wanted.id}")
+
+    scope = AccessScope.customer(CUSTOMER)
+    assert reader.calls[0] == ("find_page", (scope, NotificationFilters(), 20, 0))
+    assert ("find_by_id", (scope, wanted.id)) in reader.calls
+
+
+async def test_should_answer_a_customer_an_empty_page_for_another_customers_id(
+    reader: FakeNotificationReader,
+) -> None:
+    async with await _client(reader, caller="customer") as http:
+        response = await http.get("/notifications", params={"customerId": str(OTHER_CUSTOMER)})
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "total": 0, "limit": 20, "offset": 0}
+
+
+async def test_should_answer_a_customer_404_for_another_customers_notification() -> None:
+    foreign = _notification(0, customer=OTHER_CUSTOMER)
+    async with await _client(FakeNotificationReader([foreign]), caller="customer") as http:
+        foreign_response = await http.get(f"/notifications/{foreign.id}")
+        unknown = uuid4()
+        unknown_response = await http.get(f"/notifications/{unknown}")
+
+    assert foreign_response.status_code == unknown_response.status_code == 404
+    assert foreign_response.json() == {"detail": f"notification {foreign.id} not found"}
+    assert unknown_response.json() == {"detail": f"notification {unknown} not found"}
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        pytest.param({}, id="no-header"),
+        pytest.param({"Authorization": "Basic dXNlcjpwYXNz"}, id="basic-scheme"),
+        pytest.param({"Authorization": "Bearer "}, id="empty-bearer"),
+        pytest.param(_bearer("forged"), id="invalid-token"),
+    ],
+)
+@pytest.mark.parametrize("path", ["/notifications", f"/notifications/{uuid4()}"])
+async def test_should_answer_the_identical_401_when_the_token_is_missing_or_invalid(
+    reader: FakeNotificationReader, headers: dict[str, str], path: str
+) -> None:
+    async with await _client(reader, caller=None) as http:
+        response = await http.get(path, headers=headers)
+
+    assert response.status_code == 401
+    assert response.content == INVALID_TOKEN_BODY
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert reader.calls == []
+
+
+async def test_should_answer_401_before_validating_the_parameters(
+    reader: FakeNotificationReader,
+) -> None:
+    async with await _client(reader, caller=None) as http:
+        response = await http.get("/notifications", params={"limit": 0})
+
+    assert response.status_code == 401
+
+
+async def test_should_answer_403_when_the_token_grants_no_role(
+    reader: FakeNotificationReader,
+) -> None:
+    async with await _client(reader, caller="no-role") as http:
+        response = await http.get("/notifications")
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "access denied"}
+    assert reader.calls == []
+
+
+async def test_should_answer_503_when_the_signing_keys_are_unavailable(
+    reader: FakeNotificationReader,
+) -> None:
+    unavailable = FakeAccessTokenVerifier(unavailable=True)
+    async with await _client(reader, verifier=unavailable) as http:
+        response = await http.get("/notifications")
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "authentication unavailable"}
+    assert reader.calls == []
+
+
+async def test_should_describe_the_access_of_every_route_in_the_openapi_document(
+    client: AsyncClient,
+) -> None:
+    spec = (await client.get("/openapi.json")).json()
+    paths = spec["paths"]
+
+    assert spec["components"]["securitySchemes"]["bearerAuth"] == {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "RS256 access token issued by ecommerce-identity.",
+    }
+    for path in ("/notifications", "/notifications/{notification_id}"):
+        operation = paths[path]["get"]
+        assert operation["x-roles"] == ["CUSTOMER", "ADMIN"]
+        assert operation["security"] == [{"bearerAuth": []}]
+        assert "x-public" not in operation
+    for path in ("/health/live", "/health/ready"):
+        operation = paths[path]["get"]
+        assert operation["x-public"] is True
+        assert "security" not in operation
+        assert "x-roles" not in operation

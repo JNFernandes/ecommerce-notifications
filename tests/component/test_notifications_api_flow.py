@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 import pytest
 from testcontainers.community.kafka import KafkaContainer
 
-from tests.support.app import RunningApp, component_settings, run_app
+from tests.support.app import RunningApp, admin_headers, component_settings, run_app
 from tests.support.events import order_placed_payload, to_json_bytes
 from tests.support.kafka import create_consumed_topics, pause_kafka, produce, unpause_kafka
 from tests.support.polling import eventually
@@ -25,7 +25,9 @@ async def app(mongodb_url: str, kafka_bootstrap: str) -> AsyncIterator[RunningAp
 
 async def _page_for(app: RunningApp, order_id: object) -> dict[str, object]:
     body: dict[str, object] = (
-        await app.http.get("/notifications", params={"orderId": str(order_id)})
+        await app.http.get(
+            "/notifications", params={"orderId": str(order_id)}, headers=admin_headers()
+        )
     ).json()
     return body
 
@@ -47,7 +49,7 @@ async def test_should_read_a_consumed_notification_through_the_api(
     assert listed["type"] == "ORDER_RECEIVED"
     assert listed["customerId"] == placed["customerId"]
     assert listed["sourceEventId"] == placed["eventId"]
-    fetched = await app.http.get(f"/notifications/{listed['id']}")
+    fetched = await app.http.get(f"/notifications/{listed['id']}", headers=admin_headers())
     assert fetched.status_code == 200
     assert fetched.json() == listed
 
@@ -66,7 +68,9 @@ async def test_should_keep_answering_reads_while_kafka_is_down(
     pause_kafka(kafka_container)
     try:
         during = await app.http.get(
-            "/notifications", params={"orderId": str(placed["aggregateId"])}
+            "/notifications",
+            params={"orderId": str(placed["aggregateId"])},
+            headers=admin_headers(),
         )
     finally:
         unpause_kafka(kafka_container)

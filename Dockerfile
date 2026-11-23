@@ -35,6 +35,14 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
+# Access-token verification (ADR 0004). The defaults match ecommerce-identity run on the host; in
+# the compose network set IDENTITY_JWKS_URL=http://identity:3001/.well-known/jwks.json. JWT_ISSUER
+# stays the issuer Identity writes into its tokens.
+ENV IDENTITY_JWKS_URL=http://localhost:3001/.well-known/jwks.json \
+    JWT_ISSUER=http://localhost:3001 \
+    JWT_AUDIENCE=ecommerce \
+    JWT_CLOCK_TOLERANCE_SECONDS=5
+
 USER app
 EXPOSE 8000
 

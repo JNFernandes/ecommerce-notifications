@@ -8,6 +8,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 
 from notifications.api.app import build_api
@@ -16,6 +17,8 @@ from notifications.application.query_notifications import NotificationQueryServi
 from notifications.application.record_order_received import RecordOrderReceivedService
 from notifications.application.record_order_status import RecordOrderStatusService
 from notifications.application.record_payment_refunded import RecordPaymentRefundedService
+from notifications.infrastructure.auth.jwks import JwksKeyStore
+from notifications.infrastructure.auth.verifier import JwtAccessTokenVerifier
 from notifications.infrastructure.indexes import ensure_indexes
 from notifications.infrastructure.mongo import MongoDatabaseProbe, create_mongo_client
 from notifications.infrastructure.repositories.dead_letters import MongoDeadLetterStore
@@ -33,6 +36,9 @@ from notifications.messaging.retry import RetryPolicy, StopAwareSleeper
 from notifications.messaging.routing import Route, RoutingTable
 
 logger = logging.getLogger(__name__)
+
+JWKS_TIMEOUT_SECONDS = 3.0
+"""Timeout of one request to the ecommerce-identity JWKS endpoint."""
 
 
 def configure_logging(settings: Settings) -> None:
@@ -77,17 +83,23 @@ def build_routing_table(
 
 
 def create_app(
-    settings: Settings | None = None, *, kafka_check_interval_seconds: float = 10.0
+    settings: Settings | None = None,
+    *,
+    kafka_check_interval_seconds: float = 10.0,
+    jwks_refresh_cooldown_seconds: float = 60.0,
 ) -> FastAPI:
     """Create the application.
 
     On startup the lifespan creates the MongoDB client, applies the versioned indexes and starts
-    the Kafka consumer manager in the background. Kafka does not need to be reachable.
+    the Kafka consumer manager in the background. Kafka does not need to be reachable, and neither
+    does Identity: its signing keys are fetched on the first authenticated request, not at startup.
 
     Args:
         settings: Configuration; read from the environment when omitted.
         kafka_check_interval_seconds: How often the broker connection is verified (tests
             shorten it to observe outages quickly).
+        jwks_refresh_cooldown_seconds: Minimum time between two fetches of the signing keys for
+            an unknown ``kid`` (tests shorten it to observe a key rotation quickly).
     """
     resolved = settings if settings is not None else Settings()
     configure_logging(resolved)
@@ -106,6 +118,15 @@ def create_app(
             order_contexts, notifications, sender, clock, ids
         )
         record_order_status = RecordOrderStatusService(notifications, sender, clock, ids)
+        jwks_client = httpx.AsyncClient(timeout=JWKS_TIMEOUT_SECONDS)
+        verifier = JwtAccessTokenVerifier(
+            JwksKeyStore(
+                resolved.identity_jwks_url, jwks_client, cooldown=jwks_refresh_cooldown_seconds
+            ),
+            issuer=resolved.jwt_issuer,
+            audience=resolved.jwt_audience,
+            leeway_seconds=resolved.jwt_clock_tolerance_seconds,
+        )
         stop_event = asyncio.Event()
         consumers = KafkaConsumerManager(
             resolved.kafka_bootstrap_servers,
@@ -132,10 +153,12 @@ def create_app(
             consumers.start()
             app.state.health_service = HealthService(MongoDatabaseProbe(client), consumers)
             app.state.notification_query_service = NotificationQueryService(notifications)
+            app.state.access_token_verifier = verifier
             logger.info("ecommerce-notifications started")
             yield
         finally:
             await consumers.stop()
+            await jwks_client.aclose()
             await client.close()
             logger.info("ecommerce-notifications stopped")
 
