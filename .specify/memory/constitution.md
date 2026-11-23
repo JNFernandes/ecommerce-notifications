@@ -1,20 +1,19 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change:    1.0.0 → 1.1.0
-Bump rationale:    MINOR — materially changed guidance in one principle, nothing removed. The
-                   component-test MUST "… → notification readable over HTTP" could not be met
-                   before the read API exists (US-04), so US-01 and US-02 fell short of it (found by
-                   /speckit-analyze on specs/002-order-confirmed-cancelled, finding C1). The rule
-                   now applies once the read API exists, adds the interim rule (assert the stored
-                   notification in MongoDB) and an explicit catch-up obligation for the story that
-                   introduces the read API.
+Version change:    1.1.0 → 1.2.0
+Bump rationale:    MINOR — materially expanded guidance in one principle, nothing removed. US-05
+                   (specs/005-jwt-auth-scoped-api) closes the read API, which was open to anyone:
+                   Principle II now requires bearer-token authentication, customer scoping and an
+                   explicit access policy on every route (default deny). Decision: ADR 0004.
 
 Modified principles:
-  - VII. Testing Strategy — title unchanged. The component-test bullet now: full flow including
-    the HTTP read once the read API exists; until then assert the stored notification directly in
-    MongoDB; the story that introduces the read API MUST extend every existing component test with
-    the HTTP read assertion.
+  - II. Event-Driven Service, Read-Only API — title unchanged. Added "Authentication and access":
+    RS256 tokens from ecommerce-identity verified locally against its JWKS (never at startup, never
+    a condition of readiness or consumption); ADMIN sees all, CUSTOMER only their own
+    `customerId`; one byte-identical 401 for every token problem, 403 for no usable role, 503 when
+    no keys can be obtained; every route declares `PUBLIC` or its roles, checked when the app is
+    built; tokens are never logged. CORS now allows the `Authorization` header.
 
 Added sections:
   - (none)
@@ -29,17 +28,19 @@ Templates reviewed:
   ✅ .specify/templates/commands/*.md     — Directory not present in this project; nothing to update.
 
 Runtime guidance:
-  ✅ CLAUDE.md — "Tests" obligation reworded from a justified deviation to the v1.1.0 rule.
-  ✅ specs/002-order-confirmed-cancelled/plan.md — Constitution Check VII back to ✅; Complexity
-     Tracking entry closed by this amendment.
-  ✅ README.md, Dockerfile, docs/adr — no reference to the changed rule; no change needed.
+  ✅ CLAUDE.md — "No authentication" replaced; US-05, the four settings and the test token
+     helpers added.
+  ✅ README.md — authentication, settings, access rules and error codes documented.
+  ✅ Dockerfile — defaults for the four authentication settings.
+  ✅ docs/adr — 0004 added and indexed.
 
 Migration note:
-  - No code change. The component tests of US-01 and US-02 already assert in MongoDB, which is
-    now the required interim behaviour. US-04 MUST add the HTTP read assertion to
-    tests/component/test_order_placed_flow.py and tests/component/test_order_status_flow.py.
+  - Implemented in the same change set (US-05): every `/notifications` route requires a token, and
+    the component tests read back over HTTP with an admin token.
 
 Previous amendments:
+  - 1.1.0 (2026-11-16): VII. component tests read the notification back over HTTP once the read
+    API exists; until then they assert it in MongoDB.
   - 1.0.0 (2026-11-16): initial ratification from the template, modelled on ecommerce-inventory
     v1.0.1 and adapted to Python 3.12 / FastAPI / MongoDB.
 
@@ -98,6 +99,22 @@ Rules:
 - Adding any write endpoint or any produced event requires an accepted ADR in `docs/adr/`
   **before** implementation starts, followed by a constitution amendment.
 - CORS allowed origins MUST come from an environment variable and MUST be empty by default.
+  CORS MUST allow the `Authorization` header.
+
+Authentication and access (ADR 0004):
+- Every route MUST declare its access: public (health, liveness, readiness and the API
+  documentation only) or the roles it requires. A route that declares neither MUST make the
+  application fail to build (default deny).
+- Protected routes MUST require an RS256 bearer token issued by `ecommerce-identity`, verified
+  locally against its JWKS (`IDENTITY_JWKS_URL`) with a fixed algorithm list and the configured
+  issuer, audience and clock tolerance. Keys MUST be fetched lazily and cached; Identity's
+  availability MUST NOT affect startup, readiness or event consumption.
+- An `ADMIN` sees every notification. A `CUSTOMER` sees only the notifications of the
+  `customerId` in their token; another customer's notification MUST be indistinguishable from a
+  missing one. Who sees what is a domain rule, and the scope MUST be applied in the query itself.
+- Every missing or invalid token MUST get the same 401 response (`WWW-Authenticate: Bearer`); a
+  valid token without a usable role gets 403; no obtainable signing keys gets 503. Tokens MUST
+  NOT be logged or echoed.
 
 ### III. Write Flow Integrity (NON-NEGOTIABLE)
 
@@ -360,4 +377,4 @@ note if existing code must change.
 Reviewers are empowered to block merges for violations without exception. New principles take
 effect immediately upon merge.
 
-**Version**: 1.1.0 | **Ratified**: 2026-11-16 | **Last Amended**: 2026-11-16
+**Version**: 1.2.0 | **Ratified**: 2026-11-16 | **Last Amended**: 2026-11-23

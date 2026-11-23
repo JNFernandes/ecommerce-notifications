@@ -48,7 +48,7 @@ Conventional Commit scoped `US-05`. Never leave the gate red between tasks.
 
 **Goal**: ADMIN sees and filters everything; a token with no usable role gets 403.
 
-- [ ] T010 [US3] Add admin cases to `tests/component/test_notifications_auth_flow.py`: list without filters returns both customers with the right `total`, `customerId` = B filters to B, read A's notification by id, CUSTOMER+ADMIN gets the admin view, valid token with no ADMIN and no customerId → 403 (fix any gap found in T002/T007)
+- [X] T010 [US3] Add admin cases to `tests/component/test_notifications_auth_flow.py`: list without filters returns both customers with the right `total`, `customerId` = B filters to B, read A's notification by id, CUSTOMER+ADMIN gets the admin view, valid token with no ADMIN and no customerId → 403 (fix any gap found in T002/T007)
 
 ---
 
@@ -56,15 +56,15 @@ Conventional Commit scoped `US-05`. Never leave the gate red between tasks.
 
 **Goal**: Identity's availability never affects startup, readiness or Kafka.
 
-- [ ] T011 [US4] Add to `tests/component/test_notifications_auth_flow.py`: with `IDENTITY_JWKS_URL` = `http://127.0.0.1:1/...` the app starts, `/health/live` and `/health/ready` answer 200 without a token, an order event is still consumed and stored, a token request gets 503; with a reachable `JwksServer`, a cached key keeps working after the server stops, and a rotated `kid` is accepted after one refresh
+- [X] T011 [US4] Add to `tests/component/test_notifications_auth_flow.py`: with `IDENTITY_JWKS_URL` = `http://127.0.0.1:1/...` the app starts, `/health/live` and `/health/ready` answer 200 without a token, an order event is still consumed and stored, a token request gets 503; with a reachable `JwksServer`, a cached key keeps working after the server stops, and a rotated `kid` is accepted after one refresh
 
 ---
 
 ## Phase 6: Polish & documentation
 
-- [ ] T012 [P] Write `docs/adr/0004-local-jwt-verification-with-jwks.md` (template `docs/adr/template.md`) and add it to `docs/adr/README.md`; amend `.specify/memory/constitution.md` to 1.2.0 (Principle II: authentication, default deny, route policy; sync report at the top)
-- [ ] T013 [P] Update `README.md` (auth, the four settings, access rules, 401/403/503, manual quickstart steps), `CLAUDE.md` (replace "No authentication", add US-05 to "Where things are", settings, `tests/support/tokens.py`, admin token in the readable helpers) and `Dockerfile` (env defaults for the four settings)
-- [ ] T014 Final gate run, then walk `specs/005-jwt-auth-scoped-api/quickstart.md` manual steps against ecommerce-infra if Identity is available (note in the PR if skipped)
+- [X] T012 [P] Write `docs/adr/0004-local-jwt-verification-with-jwks.md` (template `docs/adr/template.md`) and add it to `docs/adr/README.md`; amend `.specify/memory/constitution.md` to 1.2.0 (Principle II: authentication, default deny, route policy; sync report at the top)
+- [X] T013 [P] Update `README.md` (auth, the four settings, access rules, 401/403/503, manual quickstart steps), `CLAUDE.md` (replace "No authentication", add US-05 to "Where things are", settings, `tests/support/tokens.py`, admin token in the readable helpers) and `Dockerfile` (env defaults for the four settings)
+- [X] T014 Final gate run, then walk `specs/005-jwt-auth-scoped-api/quickstart.md` manual steps against ecommerce-infra if Identity is available (note in the PR if skipped)
 
 ---
 

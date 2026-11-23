@@ -10,9 +10,10 @@ API is read-only, and the service publishes no events.
 The rules for this codebase are in the [constitution](.specify/memory/constitution.md).
 Architectural decisions are in [docs/adr](docs/adr/README.md).
 
-> **Status:** US-01 to US-04 done. The service consumes `orders.order-placed`,
+> **Status:** US-01 to US-05 done. The service consumes `orders.order-placed`,
 > `orders.order-confirmed`, `orders.order-cancelled` and `payments.payment-refunded`, and serves
-> the recorded notifications through a read-only HTTP API.
+> the recorded notifications through a read-only HTTP API that requires an `ecommerce-identity`
+> access token and shows each customer only their own notifications.
 
 ## Consumed topics
 
@@ -71,18 +72,44 @@ db.inbound_dead_letters.find({ errorType: "OrderContextNotFoundError" })
 
 ## HTTP API
 
-| Method and path | Purpose | Status |
+| Method and path | Purpose | Access |
 |---|---|---|
-| `GET /health/live` | Liveness: `UP` whenever the process answers. | available |
-| `GET /health/ready` | Readiness: 200 when MongoDB answers, 503 otherwise. Reports the Kafka consumer state (`CONNECTING`, `CONNECTED`, `DISCONNECTED`) without failing when Kafka is down. | available |
-| `GET /notifications` | List notifications, newest first. Filters `customerId`, `orderId`, `type`; `limit` / `offset` pagination. | available |
-| `GET /notifications/{id}` | One notification. | available |
+| `GET /health/live` | Liveness: `UP` whenever the process answers. | public |
+| `GET /health/ready` | Readiness: 200 when MongoDB answers, 503 otherwise. Reports the Kafka consumer state (`CONNECTING`, `CONNECTED`, `DISCONNECTED`) without failing when Kafka is down. Identity is never checked. | public |
+| `GET /notifications` | List notifications, newest first. Filters `customerId`, `orderId`, `type`; `limit` / `offset` pagination. | `CUSTOMER` (own only) or `ADMIN` |
+| `GET /notifications/{id}` | One notification. | `CUSTOMER` (own only) or `ADMIN` |
 
-The OpenAPI document is served at `/openapi.json`, with interactive docs at `/docs`.
+The OpenAPI document is served at `/openapi.json`, with interactive docs at `/docs` (both public).
+It declares the `bearerAuth` scheme and marks each operation with `x-public: true` or
+`x-roles: [...]`.
 
-> **No authentication.** The API has no authentication or rate limiting and is meant for
-> **local and demo use only**. It is read-only: no endpoint creates, changes or deletes data
-> (other methods answer 405). It only needs MongoDB, so it keeps answering while Kafka is down.
+The API is read-only: no endpoint creates, changes or deletes data (other methods answer 405). It
+only needs MongoDB, so it keeps answering while Kafka is down. There is no rate limiting.
+
+### Authentication and access
+
+Send the access token issued by `ecommerce-identity` (log in there and copy `accessToken`):
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/notifications
+```
+
+- Tokens are verified locally ([ADR 0004](docs/adr/0004-local-jwt-verification-with-jwks.md)):
+  RS256 only, signed by a key from `IDENTITY_JWKS_URL`, with `iss` = `JWT_ISSUER`, `aud` =
+  `JWT_AUDIENCE`, and `exp`, `iat`, `sub` required; `exp` allows
+  `JWT_CLOCK_TOLERANCE_SECONDS` of clock skew.
+- The signing keys are fetched on the first authenticated request, never at startup, and cached
+  by `kid`. An unknown `kid` triggers at most one refetch per minute, so a rotated key is picked
+  up without a restart. Cached keys keep working while Identity is down.
+- **ADMIN** sees every notification and may filter by any `customerId`. A token holding both roles
+  gets the admin view.
+- **CUSTOMER** sees only the notifications of the `customerId` in their token. A `customerId`
+  filter for another customer returns an empty page, and another customer's notification by id
+  answers the same 404 as an unknown id.
+- A valid token with neither `ADMIN` nor (`CUSTOMER` and a `customerId`) gets 403.
+- Every missing, malformed, expired or forged token gets the same 401. Tokens are never logged.
+- Identity's availability never affects startup, readiness or event consumption; only the
+  protected requests answer 503 while no signing key has ever been obtained.
 
 ### `GET /notifications`
 
@@ -99,7 +126,7 @@ unchanged data set never skips or repeats a notification. `total` is the exact n
 notifications.
 
 ```sh
-curl "http://localhost:8000/notifications?customerId=3fa85f64-5717-4562-b3fc-2c963f66afa6&type=PAYMENT_REFUNDED&limit=10"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/notifications?customerId=3fa85f64-5717-4562-b3fc-2c963f66afa6&type=PAYMENT_REFUNDED&limit=10"
 ```
 
 ```json
@@ -131,9 +158,12 @@ Returns one notification (same shape as an `items` element).
 
 | Status | When | Body |
 |---|---|---|
+| 401 | no `Authorization: Bearer` header, or an invalid token (any reason); with `WWW-Authenticate: Bearer` | `{"detail": "invalid or missing access token"}` |
+| 403 | valid token without a usable role (see above) | `{"detail": "access denied"}` |
 | 404 | no notification has this id | `{"detail": "notification <id> not found"}` |
 | 422 | unknown `type`; `limit` / `offset` out of range or not an integer; malformed UUID in a filter or the path | `{"detail": [{"loc": [...], "msg": "...", "type": "..."}]}` |
 | 503 | MongoDB unreachable (never reported as an empty result) | `{"detail": "database unavailable"}` |
+| 503 | no signing key could ever be fetched from `IDENTITY_JWKS_URL` | `{"detail": "authentication unavailable"}` |
 | 405 | any method other than `GET` | standard |
 
 ### Indexes (schema version 3)
@@ -180,9 +210,18 @@ in memory (checked by the integration tests with `explain()`).
    uv run uvicorn notifications.main:create_app --factory --port 8000 --reload
    ```
 
-3. Check it: `curl http://localhost:8000/health/ready`.
+3. Check it: `curl http://localhost:8000/health/ready` (no token needed).
 
-The service starts even when Kafka is not reachable. The consumer manager keeps retrying in the
+4. Read notifications with a token from `ecommerce-identity` (`docker compose --profile apps up -d
+   identity` in `ecommerce-infra`, then log in and copy `accessToken`):
+
+   | Request | Expected |
+   |---|---|
+   | `curl -i localhost:8000/notifications` | 401 with `WWW-Authenticate: Bearer` |
+   | `curl -H "Authorization: Bearer $TOKEN" localhost:8000/notifications` | only your own notifications (all of them with an ADMIN token) |
+   | Identity stopped and this service restarted, then a request with a token | 503 `authentication unavailable`; `/health/ready` stays 200 |
+
+The service starts even when Kafka or Identity is not reachable. The consumer manager keeps retrying in the
 background with exponential backoff, and readiness shows the Kafka state. MongoDB must be reachable
 at startup because the indexes are applied then.
 
@@ -228,7 +267,11 @@ All settings come from environment variables. The defaults match `ecommerce-infr
 | `KAFKA_TOPIC_ORDER_CONFIRMED` | `orders.order-confirmed` | Topic of `OrderConfirmed` events (`ORDER_CONFIRMED`) |
 | `KAFKA_TOPIC_ORDER_CANCELLED` | `orders.order-cancelled` | Topic of `OrderCancelled` events (`ORDER_CANCELLED`) |
 | `KAFKA_TOPIC_PAYMENT_REFUNDED` | `payments.payment-refunded` | Topic of `PaymentRefunded` events (`PAYMENT_REFUNDED`) |
-| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated origins allowed to call the API from a browser (`GET` only), e.g. `http://localhost:5173` for a frontend dev server. Empty = no cross-origin access. Add the frontend origin here, never in code. |
+| `IDENTITY_JWKS_URL` | `http://localhost:3001/.well-known/jwks.json` | `ecommerce-identity`'s JWKS endpoint (http or https); inside the compose network `http://identity:3001/.well-known/jwks.json` |
+| `JWT_ISSUER` | `http://localhost:3001` | Required `iss` of access tokens (Identity's `JWT_ISSUER`) |
+| `JWT_AUDIENCE` | `ecommerce` | Required `aud` of access tokens (Identity's `JWT_AUDIENCE`) |
+| `JWT_CLOCK_TOLERANCE_SECONDS` | `5` | Clock skew allowed on `exp` and `iat` (`0`–`300`) |
+| `CORS_ALLOWED_ORIGINS` | empty | Comma-separated origins allowed to call the API from a browser (`GET` only, `Authorization` header allowed), e.g. `http://localhost:5173` for a frontend dev server. Empty = no cross-origin access. Add the frontend origin here, never in code. |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 | `CONSUMER_RETRY_MAX_ATTEMPTS` | `5` | Attempts per consumed message, the first included (`>= 1`; `1` means no retries) |
 | `CONSUMER_RETRY_BASE_DELAY_SECONDS` | `1.0` | Pause before the second attempt (`> 0`) |
@@ -248,13 +291,15 @@ for tests or a renamed environment. The four names must differ.
 docker build -t ecommerce-notifications .
 docker run --rm -p 8000:8000 --network ecommerce_default \
   -e MONGODB_URI='mongodb://mongo_user:mongo_pass@mongo:27017/?authSource=admin' \
-  -e KAFKA_BOOTSTRAP_SERVERS=kafka:29092 \
+  -e KAFKA_BOOTSTRAP_SERVERS=kafka:29092   -e IDENTITY_JWKS_URL=http://identity:3001/.well-known/jwks.json \
   ecommerce-notifications
 ```
 
 The image is a multi-stage build: uv installs the locked dependencies in a build stage, and the
 runtime stage is `python:3.12-slim` with only the virtual environment, running as a non-root user.
-Its health check calls `/health/live`. Inside the compose network, Kafka listens on `kafka:29092`.
+Its health check calls `/health/live`. Inside the compose network, Kafka listens on `kafka:29092`
+and Identity on `identity:3001`; `JWT_ISSUER` stays `http://localhost:3001`, the issuer Identity
+writes into its tokens.
 
 ## Quality gate
 
@@ -285,12 +330,14 @@ src/notifications/
   messaging/         Kafka handlers, retry/dead-letter processor, background consumer manager
   application/       Application services and the ports (Protocols) they use
   domain/            Business logic in plain Python (no FastAPI, aiokafka, pymongo or Pydantic)
-  infrastructure/    Settings, MongoDB client, repositories, simulated sender, index module
+  infrastructure/    Settings, MongoDB client, repositories, simulated sender, index module,
+                     access-token verification (auth/: JWKS key store, JWT verifier)
 tests/
   unit/              Domain, application and messaging in isolation, with fakes; no containers
   integration/       Repositories and indexes against a real MongoDB container
   component/         The full application against real MongoDB and Kafka containers
-  support/           Fakes, event builders, Kafka helpers and polling (no fixed sleeps in tests)
+  support/           Fakes, event builders, Kafka helpers, polling (no fixed sleeps in tests),
+                     test tokens and a local JWKS server (tokens.py: no Identity needed)
 docs/adr/            Architecture Decision Records
 ```
 

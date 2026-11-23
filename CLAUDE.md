@@ -9,7 +9,7 @@ If this file and the constitution disagree, the constitution wins.
 - Python 3.12 **through uv only**: always `uv run ...`. The machine's global Python is 3.11 and
   must not be used. Add dependencies with `uv add` / `uv add --dev`, and commit `uv.lock`.
 - FastAPI + uvicorn, Pydantic v2 + pydantic-settings, aiokafka, PyMongo async API
-  (`AsyncMongoClient`)
+  (`AsyncMongoClient`), PyJWT[crypto] + httpx (access tokens and the Identity JWKS)
 - pytest, pytest-asyncio (`asyncio_mode = "auto"`), pytest-cov, httpx, Testcontainers
   (`testcontainers.community.mongodb`, Kafka)
 - Ruff (lint + format), mypy strict (with the pydantic plugin)
@@ -47,7 +47,7 @@ Repository.**
 - Infrastructure (`infrastructure`): settings, MongoDB client, persistence documents mapped
   explicitly to and from domain objects, the index module.
 - `notifications/main.py` is the composition root (lifespan: MongoDB client → indexes → consumer
-  manager → `HealthService` on `app.state`).
+  manager → `HealthService`, the query service and the access-token verifier on `app.state`).
 
 ## Write flow (never deviate)
 
@@ -130,18 +130,35 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 
 - Only `GET /health/live`, `GET /health/ready`, `GET /notifications` (filters `customerId`,
   `orderId`, `type`; `limit` 1–100 / `offset` ≥ 0; newest first with `_id` tie-break; exact
-  `total`) and `GET /notifications/{id}`. No authentication: local and demo use only.
+  `total`) and `GET /notifications/{id}`.
+- Authentication (US-05, ADR 0004, constitution II): `/notifications*` need an RS256 bearer token
+  from ecommerce-identity, verified locally: `infrastructure/auth/jwks.py::JwksKeyStore` (lazy
+  fetch of `IDENTITY_JWKS_URL`, cache by `kid`, refetch only for an unknown `kid` after a 60 s
+  cooldown, one lock; `create_app(jwks_refresh_cooldown_seconds=...)` shortens it in tests) and
+  `infrastructure/auth/verifier.py::JwtAccessTokenVerifier` (`alg == RS256` + `kid` before any
+  fetch; `iss` `JWT_ISSUER`, `aud` `JWT_AUDIENCE`, leeway `JWT_CLOCK_TOLERANCE_SECONDS`). Never
+  fetch at startup; Identity never affects readiness or consumption. Never log a token.
+- Access is a domain rule: `domain/access.py` (`Role`, `AccessScope.for_caller`: ADMIN → all,
+  wins over CUSTOMER; CUSTOMER + `customerId` → that customer; else `AccessDeniedError`). The
+  scope reaches the query (`NotificationReader` methods take `scope`): a foreign `customerId`
+  filter → empty page without a query, a foreign id → the same 404 as an unknown id.
+- Every route declares `PUBLIC` or `require_roles(...)` (`api/auth.py`) plus `x-public` /
+  `x-roles` in `openapi_extra`; `api/route_policy.py::assert_route_policies` fails `build_api`
+  for an undeclared route (default deny).
 - Read path: `api/notifications.py` (router, `NotificationResponse`, `NotificationPageResponse`)
   → one `application/query_notifications.py::NotificationQueryService` call → the
   `NotificationReader` port (`find_page`, `count`, `find_by_id`), implemented by
   `MongoNotificationRepository`. Response models are separate from domain and documents.
 - Errors are mapped only in `api/errors.py`: `NotificationNotFoundError` → 404,
-  `PyMongoError` → 503 (never an empty result), both as the Pydantic `ErrorResponse`
-  (`{"detail": ...}`, FastAPI's standard shape); validation is FastAPI's standard 422.
+  `PyMongoError` → 503 (never an empty result), `InvalidAccessTokenError` → 401
+  `invalid or missing access token` + `WWW-Authenticate: Bearer` (byte-identical for every
+  cause), `AccessDeniedError` → 403 `access denied`, `AccessTokenUnavailableError` → 503
+  `authentication unavailable`, all as the Pydantic `ErrorResponse` (`{"detail": ...}`, FastAPI's
+  standard shape); validation is FastAPI's standard 422.
 - No endpoint may create, change or delete data. A write endpoint or a produced event needs an ADR
   and a constitution amendment first.
 - Every endpoint and response model has descriptions (complete OpenAPI). CORS origins come from
-  `CORS_ALLOWED_ORIGINS`, empty by default.
+  `CORS_ALLOWED_ORIGINS`, empty by default; CORS allows the `Authorization` header.
 
 ## MongoDB
 
@@ -178,7 +195,10 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 - No `time.sleep` or bare `asyncio.sleep` in tests: use `tests/support/polling.py` (`wait_until`
   for sync conditions, `eventually` for async probes such as DB queries or readiness).
 - Component helpers: `tests/support/app.py` (`run_app`, `component_settings`: fresh database and
-  consumer group per test), `tests/support/kafka.py` (topics, `produce` → partition/offset,
+  consumer group per test, `IDENTITY_JWKS_URL` = the session's `shared_jwks_server()` serving the
+  `TOKENS` key; `bearer`, `admin_headers`), `tests/support/tokens.py` (`TokenIssuer`: RS256 tokens
+  plus forged ones, `customer_token` / `admin_token`; `JwksServer`: local JWKS over real HTTP that
+  counts requests; no test needs Identity), `tests/support/kafka.py` (topics, `produce` → partition/offset,
   `committed_offset`, `pause_kafka`). Fixtures call `create_consumed_topics` (every topic the
   consumer subscribes to, `CONSUMED_TOPICS`); a new route needs its topic there first, or the
   consumer group stalls. Topics are shared across component tests and consumed from the earliest
@@ -190,7 +210,7 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 - **Component tests and the read API (constitution VII, v1.1.0):** the read API exists, so every
   component test that records a notification MUST also read it back over HTTP with
   `tests/support/app.py::assert_readable_over_http` (a document) or
-  `assert_stored_readable_over_http` (a query).
+  `assert_stored_readable_over_http` (a query). Both read with an admin token.
 
 ## Branches and commits
 
@@ -207,7 +227,8 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 
 - ADRs in `docs/adr/` (template `docs/adr/template.md`, index `docs/adr/README.md`, four-digit
   numbers, never renumbered). Current: 0001 MongoDB, 0002 idempotency without transactions,
-  0003 consume `orders.order-placed` for the refund customer.
+  0003 consume `orders.order-placed` for the refund customer, 0004 local JWT verification with
+  JWKS.
 - Keep `README.md`, this file and the `Dockerfile` up to date with every behaviour change.
 
 ## Where things are
@@ -237,3 +258,10 @@ US-04: `GET /notifications[/{id}]` → `api/notifications.py` → `NotificationQ
 (`application/query_notifications.py`) → `MongoNotificationRepository.find_page` / `count` /
 `find_by_id`; handlers in `api/errors.py`; indexes v3. Spec and design:
 `specs/004-notifications-read-api/`.
+
+US-05: bearer auth on `/notifications*` → `api/auth.py` (`authenticate`, `require_roles`,
+`PUBLIC`, `ScopeDependency`) and `api/route_policy.py` → `application/auth.py::Principal`
+(`scope()`) and the `AccessTokenVerifier` port → `infrastructure/auth/` (`JwksKeyStore`,
+`JwtAccessTokenVerifier`, built in `main.py` onto `app.state.access_token_verifier`) →
+`domain/access.py` (`Role`, `AccessScope`). Settings `IDENTITY_JWKS_URL`, `JWT_ISSUER`,
+`JWT_AUDIENCE`, `JWT_CLOCK_TOLERANCE_SECONDS`. Spec and design: `specs/005-jwt-auth-scoped-api/`.
