@@ -11,6 +11,7 @@ from notifications.domain.notification import Notification
 from notifications.domain.order_context import OrderContext
 
 if TYPE_CHECKING:
+    from notifications.application.auth import Principal
     from notifications.application.query_notifications import NotificationFilters
 
 
@@ -64,6 +65,19 @@ class OrderContextRepository(Protocol):
 
     async def get(self, order_id: UUID) -> OrderContext | None:
         """Return the context recorded for ``order_id``, or ``None`` if there is none yet."""
+        ...
+
+
+class AccessTokenVerifier(Protocol):
+    """Verifies an access token and tells who the caller is."""
+
+    async def verify(self, token: str) -> "Principal":
+        """Return the principal of a valid ``token``.
+
+        Raises:
+            InvalidAccessTokenError: if the token is malformed or fails any check.
+            AccessTokenUnavailableError: if no signing keys are available to check it.
+        """
         ...
 
 
