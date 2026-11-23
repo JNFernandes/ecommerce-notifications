@@ -3,6 +3,8 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from notifications.application.auth import Principal
+from notifications.application.errors import AccessTokenUnavailableError, InvalidAccessTokenError
 from notifications.application.health import ConsumerState
 from notifications.application.query_notifications import NotificationFilters
 from notifications.domain.notification import Notification
@@ -267,3 +269,29 @@ class FakeNotificationReader:
         if self._error is not None:
             raise self._error
         return next((n for n in self.notifications if n.id == notification_id), None)
+
+
+class FakeAccessTokenVerifier:
+    """Access token verifier that knows a fixed set of tokens.
+
+    A known token returns its principal; any other raises ``InvalidAccessTokenError``. With
+    ``unavailable=True`` every call raises ``AccessTokenUnavailableError`` instead.
+    """
+
+    def __init__(
+        self, principals: dict[str, Principal] | None = None, *, unavailable: bool = False
+    ) -> None:
+        """Accept the tokens in ``principals``."""
+        self.principals = dict(principals or {})
+        self.verified: list[str] = []
+        self._unavailable = unavailable
+
+    async def verify(self, token: str) -> Principal:
+        """Return the principal of a known token."""
+        self.verified.append(token)
+        if self._unavailable:
+            raise AccessTokenUnavailableError
+        principal = self.principals.get(token)
+        if principal is None:
+            raise InvalidAccessTokenError
+        return principal
