@@ -83,7 +83,10 @@ def build_routing_table(
 
 
 def create_app(
-    settings: Settings | None = None, *, kafka_check_interval_seconds: float = 10.0
+    settings: Settings | None = None,
+    *,
+    kafka_check_interval_seconds: float = 10.0,
+    jwks_refresh_cooldown_seconds: float = 60.0,
 ) -> FastAPI:
     """Create the application.
 
@@ -95,6 +98,8 @@ def create_app(
         settings: Configuration; read from the environment when omitted.
         kafka_check_interval_seconds: How often the broker connection is verified (tests
             shorten it to observe outages quickly).
+        jwks_refresh_cooldown_seconds: Minimum time between two fetches of the signing keys for
+            an unknown ``kid`` (tests shorten it to observe a key rotation quickly).
     """
     resolved = settings if settings is not None else Settings()
     configure_logging(resolved)
@@ -115,7 +120,9 @@ def create_app(
         record_order_status = RecordOrderStatusService(notifications, sender, clock, ids)
         jwks_client = httpx.AsyncClient(timeout=JWKS_TIMEOUT_SECONDS)
         verifier = JwtAccessTokenVerifier(
-            JwksKeyStore(resolved.identity_jwks_url, jwks_client),
+            JwksKeyStore(
+                resolved.identity_jwks_url, jwks_client, cooldown=jwks_refresh_cooldown_seconds
+            ),
             issuer=resolved.jwt_issuer,
             audience=resolved.jwt_audience,
             leeway_seconds=resolved.jwt_clock_tolerance_seconds,
