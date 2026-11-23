@@ -15,7 +15,7 @@ Conventional Commit scoped `US-05`. Never leave the gate red between tasks.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add runtime deps with `uv add "pyjwt[crypto]" httpx` (move `httpx` out of the dev group in `pyproject.toml`), commit `uv.lock`; add the four settings `IDENTITY_JWKS_URL` (http(s) URL, default `http://localhost:3001/.well-known/jwks.json`), `JWT_ISSUER` (non-empty, default `http://localhost:3001`), `JWT_AUDIENCE` (non-empty, default `ecommerce`), `JWT_CLOCK_TOLERANCE_SECONDS` (int 0–300, default 5) to `src/notifications/infrastructure/settings.py` with docstrings, plus a settings unit test for the defaults and the bounds in `tests/unit/infrastructure/test_settings.py`
+- [X] T001 Add runtime deps with `uv add "pyjwt[crypto]" httpx` (move `httpx` out of the dev group in `pyproject.toml`), commit `uv.lock`; add the four settings `IDENTITY_JWKS_URL` (http(s) URL, default `http://localhost:3001/.well-known/jwks.json`), `JWT_ISSUER` (non-empty, default `http://localhost:3001`), `JWT_AUDIENCE` (non-empty, default `ecommerce`), `JWT_CLOCK_TOLERANCE_SECONDS` (int 0–300, default 5) to `src/notifications/infrastructure/settings.py` with docstrings, plus a settings unit test for the defaults and the bounds in `tests/unit/infrastructure/test_settings.py`
 
 ---
 

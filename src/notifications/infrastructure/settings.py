@@ -2,6 +2,7 @@
 
 from enum import StrEnum
 from typing import Annotated, Self
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -66,6 +67,29 @@ class Settings(BaseSettings):
         description="Comma-separated origins allowed by CORS. Empty means no cross-origin access.",
     )
     log_level: LogLevel = Field(default=LogLevel.INFO, description="Root log level.")
+    identity_jwks_url: str = Field(
+        default="http://localhost:3001/.well-known/jwks.json",
+        description=(
+            "http(s) URL of the ecommerce-identity JSON Web Key Set used to verify access tokens. "
+            "Fetched lazily on the first request that needs it, never at startup."
+        ),
+    )
+    jwt_issuer: str = Field(
+        default="http://localhost:3001",
+        min_length=1,
+        description="Required ``iss`` claim of every access token.",
+    )
+    jwt_audience: str = Field(
+        default="ecommerce",
+        min_length=1,
+        description="Required ``aud`` claim of every access token.",
+    )
+    jwt_clock_tolerance_seconds: int = Field(
+        default=5,
+        ge=0,
+        le=300,
+        description="Allowed clock skew, in seconds, when checking ``exp`` and ``iat``.",
+    )
     consumer_retry_max_attempts: int = Field(
         default=5,
         ge=1,
@@ -114,6 +138,15 @@ class Settings(BaseSettings):
         """Accept a comma-separated string from the environment."""
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("identity_jwks_url")
+    @classmethod
+    def _http_url(cls, value: str) -> str:
+        """Accept only an absolute http(s) URL with a host."""
+        parts = urlsplit(value)
+        if parts.scheme not in {"http", "https"} or not parts.hostname:
+            raise ValueError("must be an absolute http(s) URL")
         return value
 
     @field_validator("log_level", mode="before")
