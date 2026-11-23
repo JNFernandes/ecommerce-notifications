@@ -159,7 +159,9 @@ class JwksServer:
 
     def start(self) -> Self:
         """Start serving in a daemon thread."""
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        )
         self._thread.start()
         return self
 
