@@ -1,19 +1,19 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change:    1.1.0 → 1.2.0
-Bump rationale:    MINOR — materially expanded guidance in one principle, nothing removed. US-05
-                   (specs/005-jwt-auth-scoped-api) closes the read API, which was open to anyone:
-                   Principle II now requires bearer-token authentication, customer scoping and an
-                   explicit access policy on every route (default deny). Decision: ADR 0004.
+Version change:    1.2.0 → 1.3.0
+Bump rationale:    MINOR — materially expanded guidance, nothing removed: a fifth consumed topic,
+                   a fifth notification type, and an explicit exception to the template rule of
+                   Principle IV for the AI explanation. Decision: ADR 0005.
 
 Modified principles:
-  - II. Event-Driven Service, Read-Only API — title unchanged. Added "Authentication and access":
-    RS256 tokens from ecommerce-identity verified locally against its JWKS (never at startup, never
-    a condition of readiness or consumption); ADMIN sees all, CUSTOMER only their own
-    `customerId`; one byte-identical 401 for every token problem, 403 for no usable role, 503 when
-    no keys can be obtained; every route declares `PUBLIC` or its roles, checked when the app is
-    built; tokens are never logged. CORS now allows the `Authorization` header.
+  - IV. Notification Integrity — added `ORDER_FAILURE_EXPLANATION` (from
+    `ai.order-triage-completed`): the message is the AI explanation cleaned as untrusted plain
+    text (no control or format characters, one line, at most 500 characters) instead of a domain
+    template; the customer comes from the `OrderContext` like a refund; the triage details are
+    advisory and MUST NOT trigger any action.
+  - VIII. Kafka Events (Consumer) — `ai.order-triage-completed` added to the consumed topics,
+    with its `aggregateId` rule.
 
 Added sections:
   - (none)
@@ -28,17 +28,22 @@ Templates reviewed:
   ✅ .specify/templates/commands/*.md     — Directory not present in this project; nothing to update.
 
 Runtime guidance:
-  ✅ CLAUDE.md — "No authentication" replaced; US-05, the four settings and the test token
-     helpers added.
-  ✅ README.md — authentication, settings, access rules and error codes documented.
-  ✅ Dockerfile — defaults for the four authentication settings.
-  ✅ docs/adr — 0004 added and indexed.
+  ✅ CLAUDE.md — notification rules, Kafka topics and "Where things are" updated.
+  ✅ README.md — consumed topic, API fields, plain-text rule, setting and limitation documented.
+  ✅ Dockerfile — no change: topic settings keep their contract defaults.
+  ✅ docs/adr — 0005 added and indexed.
+  ⚠ ecommerce-infra/docs/events.md — linked PR pending: its advisory paragraph lists
+     "notification" among what the event must not trigger, and its Topics table does not list
+     Notifications as a consumer.
 
 Migration note:
-  - Implemented in the same change set (US-05): every `/notifications` route requires a token, and
-    the component tests read back over HTTP with an admin token.
+  - Implemented in the same change set: one new route, the setting
+    `KAFKA_TOPIC_ORDER_TRIAGE_COMPLETED`, additive nullable API fields; no index change (schema
+    version stays 3).
 
 Previous amendments:
+  - 1.2.0 (2026-11-23): II. bearer-token authentication, customer scoping and a declared access
+    policy on every route (US-05, ADR 0004).
   - 1.1.0 (2026-11-16): VII. component tests read the notification back over HTTP once the read
     API exists; until then they assert it in MongoDB.
   - 1.0.0 (2026-11-16): initial ratification from the template, modelled on ecommerce-inventory
@@ -77,7 +82,7 @@ Repository**.
 
 Aggregates:
 - `Notification` — `id`, `customerId`, `orderId`, `type`, `channel`, `message`, `status`,
-  `createdAt`, `sourceEventId`.
+  `createdAt`, `sourceEventId`, and optional `triage` (`ORDER_FAILURE_EXPLANATION` only).
 - `OrderContext` — `orderId`, `customerId`, `totalAmount`, `recordedAt`.
 
 Placing business logic in consumers, routers, application services or repositories is a
@@ -149,14 +154,21 @@ stored, and never for a recognised duplicate.
   - `ORDER_CANCELLED` — from `orders.order-cancelled`; the message includes the `reason` when
     present.
   - `PAYMENT_REFUNDED` — from `payments.payment-refunded`.
+  - `ORDER_FAILURE_EXPLANATION` — from `ai.order-triage-completed` (ADR 0005).
 - Message texts MUST come from templates in the domain, MUST be deterministic (same event → same
   text), and MUST contain ids and amounts only — no personal data beyond `customerId`.
+  The one exception is `ORDER_FAILURE_EXPLANATION`, whose message is the AI explanation. It is
+  untrusted text: the domain MUST clean it into one line of plain text (control and format
+  characters removed, whitespace collapsed, trimmed, at most 500 characters) and it MUST be
+  stored and returned as plain text, never as HTML. Same event → same text.
+- An `ORDER_FAILURE_EXPLANATION` is advisory: its suggested action, source, confidence and
+  prompt version are stored and shown only. Nothing MAY act on them.
 - `orders.order-placed` also stores the `OrderContext` (`orderId` → `customerId`,
   `totalAmount`).
-- `payments.payment-refunded` carries no `customerId`; the customer MUST be resolved through the
-  `OrderContext`. If the context does not exist yet, this is a **retryable failure** that goes
-  through the consumer retry and dead-letter rules (Principle VIII) — never a silent skip and
-  never a notification without a customer.
+- `payments.payment-refunded` and `ai.order-triage-completed` carry no `customerId`; the customer
+  MUST be resolved through the `OrderContext`. If the context does not exist yet, this is a
+  **retryable failure** that goes through the consumer retry and dead-letter rules
+  (Principle VIII) — never a silent skip and never a notification without a customer.
 - All timestamps MUST be UTC, timezone-aware, and serialized as ISO 8601.
 
 ### V. Type Safety & Input Validation
@@ -219,6 +231,7 @@ Kafka is the event bus between services. This service **only consumes** events.
 - `orders.order-confirmed` — record an `ORDER_CONFIRMED` notification.
 - `orders.order-cancelled` — record an `ORDER_CANCELLED` notification.
 - `payments.payment-refunded` — record a `PAYMENT_REFUNDED` notification.
+- `ai.order-triage-completed` — record an `ORDER_FAILURE_EXPLANATION` notification (advisory).
 
 **Produced topics:**
 - (none) — this service MUST NOT produce Kafka events (Principle II).
@@ -230,6 +243,8 @@ Kafka is the event bus between services. This service **only consumes** events.
   payload.
 - For consumed `payments.*` events, `aggregateId` is the **payment id**; the order is identified
   by the separate `orderId` field, which MUST be used instead of `aggregateId`.
+- For consumed `ai.order-triage-completed` events, `aggregateId` is the order id and MUST equal
+  `orderId`; a mismatch makes the message invalid.
 - Payloads are JSON. Unknown extra fields MUST be ignored; a missing required field makes the
   message invalid.
 - Event models MUST carry a docstring for every field and MUST match
@@ -377,4 +392,4 @@ note if existing code must change.
 Reviewers are empowered to block merges for violations without exception. New principles take
 effect immediately upon merge.
 
-**Version**: 1.2.0 | **Ratified**: 2026-11-16 | **Last Amended**: 2026-11-23
+**Version**: 1.3.0 | **Ratified**: 2026-11-16 | **Last Amended**: 2026-11-24

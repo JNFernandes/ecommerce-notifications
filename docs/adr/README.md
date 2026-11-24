@@ -22,3 +22,4 @@ constitution requires (Documentation Standards).
 | [0002](0002-idempotency-without-transactions.md) | Idempotency without transactions on a standalone MongoDB | Accepted |
 | [0003](0003-consume-order-placed-for-refund-customer.md) | Consume orders.order-placed to know the customer of a refund | Accepted |
 | [0004](0004-local-jwt-verification-with-jwks.md) | Verify access tokens locally against the Identity JWKS | Accepted |
+| [0005](0005-show-ai-order-failure-explanations.md) | Show AI order failure explanations to the customer as untrusted, advisory text | Accepted |

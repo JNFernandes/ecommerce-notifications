@@ -10,8 +10,9 @@ API is read-only, and the service publishes no events.
 The rules for this codebase are in the [constitution](.specify/memory/constitution.md).
 Architectural decisions are in [docs/adr](docs/adr/README.md).
 
-> **Status:** US-01 to US-05 done. The service consumes `orders.order-placed`,
-> `orders.order-confirmed`, `orders.order-cancelled` and `payments.payment-refunded`, and serves
+> **Status:** US-01 to US-05 done, plus the AI order failure explanations. The service consumes
+> `orders.order-placed`, `orders.order-confirmed`, `orders.order-cancelled`,
+> `payments.payment-refunded` and `ai.order-triage-completed`, and serves
 > the recorded notifications through a read-only HTTP API that requires an `ecommerce-identity`
 > access token and shows each customer only their own notifications.
 
@@ -23,6 +24,7 @@ Architectural decisions are in [docs/adr](docs/adr/README.md).
 | `orders.order-confirmed` | `ORDER_CONFIRMED` | Customer from the event; no `OrderContext`. Message: `Your order <orderId> was confirmed.` | implemented (US-02) |
 | `orders.order-cancelled` | `ORDER_CANCELLED` | Customer from the event; no `OrderContext`. Message: `Your order <orderId> was cancelled: <reason>.`, or `Your order <orderId> was cancelled.` without a reason. The reason is trimmed, kept on one line, loses one trailing period, and is cut at 500 characters (`…`); a `reason` that is not a string or `null` makes the message invalid. | implemented (US-02) |
 | `payments.payment-refunded` | `PAYMENT_REFUNDED` | The event has no `customerId`; the customer comes from the `OrderContext` of the event's `orderId` (never `aggregateId`, which is the payment id). Message: `Your payment of <amount> <currency> for order <orderId> was refunded.` (two decimals). A missing context is retried, then dead-lettered (see Known limitation). | implemented (US-03) |
+| `ai.order-triage-completed` | `ORDER_FAILURE_EXPLANATION` | Published by `ecommerce-ai` after it explains why an order failed. The event has no `customerId`; the customer comes from the `OrderContext` of `orderId` (equal to `aggregateId`), like a refund. Message: the AI explanation, cleaned as untrusted plain text (see below). `suggestedAction`, `source`, `confidence` and `promptVersion` are kept on the notification. **Advisory only:** nothing acts on the suggestion. See [ADR 0005](docs/adr/0005-show-ai-order-failure-explanations.md). | implemented |
 
 Payloads are defined in
 [`ecommerce-infra/docs/events.md`](../ecommerce-infra/docs/events.md), the source of truth for
@@ -52,19 +54,38 @@ every event contract.
   until it is stored or dead-lettered.
 - Amounts are read and stored exactly (`Decimal`, `Decimal128` in MongoDB), never as floats.
 
-### Known limitation: refund before its order context
+### AI order failure explanations
 
-A refund notification needs the customer, which only the order's placement provides (stored as
-the `OrderContext`). If no context exists for the refund's `orderId`, the refund is retried with
-the `CONSUMER_RETRY_*` backoff (about 15 s with the defaults) and then stored in
+- **Strict contract.** A `version` other than 1, an unknown `cause`, `suggestedAction` or
+  `source`, a `confidence` outside 0–1, an `explanation` outside 1–1000 characters, a `modelId`
+  that is neither a string nor `null`, or an `orderId` different from `aggregateId` sends the
+  message straight to `inbound_dead_letters`; the consumer moves on.
+- **Untrusted text.** The explanation becomes the message after cleaning: control and format
+  characters (including zero-width and bidirectional overrides) are removed, tabs and line breaks
+  become spaces, runs of whitespace collapse, the text is trimmed and cut to 500 characters
+  ending with `…`. An explanation with nothing left is retried, then dead-lettered. The
+  `promptVersion` is cleaned the same way (64 characters).
+- **Plain text, never HTML.** The API returns the text as a JSON string. Markup is not removed or
+  escaped; it stays literal characters, so clients must render `message` as text.
+- **Advisory.** The notification is stored and shown, nothing more: no code reads
+  `suggestedAction` to decide anything. A failed order usually gets two explanations (the failed
+  payment or stock outcome, then the cancellation), one per triage event.
+- **Order not known yet.** Like a refund, an explanation whose order context does not exist is
+  retried and then dead-lettered with `errorType: "OrderContextNotFoundError"` (see below).
+
+### Known limitation: refund or explanation before its order context
+
+A refund or order failure explanation needs the customer, which only the order's placement
+provides (stored as the `OrderContext`). If no context exists for the event's `orderId`, it is
+retried with the `CONSUMER_RETRY_*` backoff (about 15 s with the defaults) and then stored in
 `inbound_dead_letters` with `errorType: "OrderContextNotFoundError"` and the order id in
 `errorMessage`. No notification is ever stored without a customer.
 
-In normal operation the placement is processed long before the refund (a refund follows a
-cancellation, which follows the placement). It can happen while the service catches up on a
-backlog: messages are processed one at a time per instance, so the placement waiting behind a
-retrying refund cannot be processed in time. **Such refunds are not recorded later**, even after
-the context arrives; replaying dead letters is not provided. Find them with:
+In normal operation the placement is processed long before the refund or the explanation (both
+follow a failure or cancellation, which follows the placement). It can happen while the service
+catches up on a backlog: messages are processed one at a time per instance, so the placement
+waiting behind a retrying event cannot be processed in time. **Such events are not recorded
+later**, even after the context arrives; replaying dead letters is not provided. Find them with:
 
 ```js
 db.inbound_dead_letters.find({ errorType: "OrderContextNotFoundError" })
@@ -117,7 +138,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/notifications
 |---|---|---|---|
 | `customerId` | UUID | — | optional filter |
 | `orderId` | UUID | — | optional filter |
-| `type` | `ORDER_RECEIVED`, `ORDER_CONFIRMED`, `ORDER_CANCELLED`, `PAYMENT_REFUNDED` | — | optional filter |
+| `type` | `ORDER_RECEIVED`, `ORDER_CONFIRMED`, `ORDER_CANCELLED`, `PAYMENT_REFUNDED`, `ORDER_FAILURE_EXPLANATION` | — | optional filter |
 | `limit` | integer | 20 | 1–100 |
 | `offset` | integer | 0 | ≥ 0 |
 
@@ -141,7 +162,11 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/notifications?cust
       "message": "Your payment of 42.50 USD for order 270bd352-0309-4356-9fa3-925a5450c361 was refunded.",
       "status": "SENT",
       "createdAt": "2026-11-16T21:30:02.208000Z",
-      "sourceEventId": "6a1b2c3d-0000-4000-8000-000000000401"
+      "sourceEventId": "6a1b2c3d-0000-4000-8000-000000000401",
+      "suggestedAction": null,
+      "source": null,
+      "confidence": null,
+      "promptVersion": null
     }
   ],
   "total": 1,
@@ -153,6 +178,33 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/notifications?cust
 ### `GET /notifications/{id}`
 
 Returns one notification (same shape as an `items` element).
+
+### Response fields
+
+Every item has `id`, `customerId`, `orderId`, `type`, `channel`, `message`, `status`,
+`createdAt` and `sourceEventId`. Four fields were added for `ORDER_FAILURE_EXPLANATION` and are
+`null` for every other type: `suggestedAction` (`CONTACT_CUSTOMER`, `RESTOCK`, `FIX_CATALOG`,
+`REVIEW`, `NONE`; advice only), `source` (`LLM` or `FALLBACK_TEMPLATE`), `confidence` (number
+0–1) and `promptVersion` (string). `message` is always plain text on one line; render it as text,
+never as HTML.
+
+```json
+{
+  "id": "5c0e7a52-2f3b-4f0e-9a51-0d7f6f1e2a10",
+  "customerId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "orderId": "270bd352-0309-4356-9fa3-925a5450c361",
+  "type": "ORDER_FAILURE_EXPLANATION",
+  "channel": "email",
+  "message": "Stock for product SKU-002 was short by 3 units, so nothing was reserved and the order was cancelled.",
+  "status": "SENT",
+  "createdAt": "2026-11-24T20:00:01.512000Z",
+  "sourceEventId": "6f1c2b3a-0000-4000-8000-000000000501",
+  "suggestedAction": "RESTOCK",
+  "source": "LLM",
+  "confidence": 0.92,
+  "promptVersion": "triage.v1"
+}
+```
 
 ### Errors (FastAPI's standard format)
 
@@ -267,6 +319,7 @@ All settings come from environment variables. The defaults match `ecommerce-infr
 | `KAFKA_TOPIC_ORDER_CONFIRMED` | `orders.order-confirmed` | Topic of `OrderConfirmed` events (`ORDER_CONFIRMED`) |
 | `KAFKA_TOPIC_ORDER_CANCELLED` | `orders.order-cancelled` | Topic of `OrderCancelled` events (`ORDER_CANCELLED`) |
 | `KAFKA_TOPIC_PAYMENT_REFUNDED` | `payments.payment-refunded` | Topic of `PaymentRefunded` events (`PAYMENT_REFUNDED`) |
+| `KAFKA_TOPIC_ORDER_TRIAGE_COMPLETED` | `ai.order-triage-completed` | Topic of `ecommerce-ai` triage results (`ORDER_FAILURE_EXPLANATION`) |
 | `IDENTITY_JWKS_URL` | `http://localhost:3001/.well-known/jwks.json` | `ecommerce-identity`'s JWKS endpoint (http or https); inside the compose network `http://identity:3001/.well-known/jwks.json` |
 | `JWT_ISSUER` | `http://localhost:3001` | Required `iss` of access tokens (Identity's `JWT_ISSUER`) |
 | `JWT_AUDIENCE` | `ecommerce` | Required `aud` of access tokens (Identity's `JWT_AUDIENCE`) |
@@ -283,7 +336,8 @@ defaults the pauses are 1, 2, 4 and 8 seconds, about 15 seconds per failing mess
 value stops the service at startup with an error naming the variable.
 
 The topic defaults are the contract names in `ecommerce-infra/docs/events.md`; override them only
-for tests or a renamed environment. The four names must differ.
+for tests or a renamed environment. The five names must differ. All topics are read by the one
+consumer group `KAFKA_GROUP_ID`.
 
 ### Docker
 

@@ -67,9 +67,11 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 ## Notification rules
 
 - Types (`StrEnum`): `ORDER_RECEIVED` (`orders.order-placed`), `ORDER_CONFIRMED`,
-  `ORDER_CANCELLED` (include `reason` when present), `PAYMENT_REFUNDED`. Channel `email`.
+  `ORDER_CANCELLED` (include `reason` when present), `PAYMENT_REFUNDED`,
+  `ORDER_FAILURE_EXPLANATION` (`ai.order-triage-completed`). Channel `email`.
   Build them only through the `Notification` factories (`order_received`, `order_confirmed`,
-  `order_cancelled`), which share `_create` (email, `SENT`, UTC millis).
+  `order_cancelled`, `payment_refunded`, `order_failure_explanation`), which share `_create`
+  (email, `SENT`, UTC millis).
 - Cancellation reason: `domain/messages.py::normalise_reason` (runs of line breaks/tabs → one
   space, trim, drop one trailing period, empty → no reason, > 500 chars → cut + `…`). The parser
   passes the raw reason on; only the domain decides how it is shown. A non-string `reason` is an
@@ -83,7 +85,15 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
   decimals + currency code (`require_currency_code`, three uppercase letters). Late contexts
   after the dead letter are an accepted limitation (README).
 - Notifications are immutable. Messages come from domain templates: deterministic, ids and amounts
-  only, no personal data beyond `customerId`.
+  only, no personal data beyond `customerId`. Sole exception (constitution 1.3.0, ADR 0005):
+  `ORDER_FAILURE_EXPLANATION`, whose message is the AI explanation cleaned by
+  `domain/messages.py::plain_text` (control/format chars removed, whitespace collapsed, trimmed,
+  ≤ 500 chars with `…`; empty → `InvalidExplanationError`). Plain text, never HTML.
+- Order failure explanations are advisory: `domain/triage.py::TriageDetails`
+  (`SuggestedAction`, `TriageSource`, confidence 0–1, cleaned `promptVersion`) is stored as the
+  `triage` sub-document and returned as nullable API fields. Nothing may act on
+  `suggestedAction`. The customer comes from `OrderContext` exactly like a refund
+  (`application/order_customer.py::customer_of_order`).
 - `payments.payment-refunded` has no `customerId`: resolve it through `OrderContext` by `orderId`
   (never `aggregateId`, which is the payment id). Missing context = retryable failure → retries →
   dead letter. Never skip, never store a notification without a customer (ADR 0003).
@@ -93,7 +103,8 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 ## Kafka
 
 - Consumed: `orders.order-placed`, `orders.order-confirmed`, `orders.order-cancelled`,
-  `payments.payment-refunded`. **Produce nothing.**
+  `payments.payment-refunded`, `ai.order-triage-completed` (`aggregateId` = order id = `orderId`).
+  **Produce nothing.**
 - Manual offset commit after the save (`enable_auto_commit=False`). Exponential-backoff retries;
   when exhausted → `inbound_dead_letters` (payload, topic, partition, offset, error, attempts,
   timestamps) + log + commit the offset. Invalid or unparseable messages go straight to the dead
@@ -106,7 +117,7 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
   the single `MessageHandler` given to the processor, and a topic without a route raises
   `InvalidMessageError` (dead letter, never dropped). Register routes only in
   `main.py::build_routing_table`; never add a second consumer. Topic names are settings
-  (`KAFKA_TOPIC_ORDER_*`, defaults = contract names).
+  (`KAFKA_TOPIC_*`, defaults = contract names).
 - `messaging/consumer_manager.py` (`KafkaConsumerManager`): runs in a background task, never
   blocks startup, reconnects with backoff, exposes `state` for `/health/ready`. Kafka down never
   makes the service unready. It subscribes to `routing.topics`, processes
@@ -228,7 +239,7 @@ MongoDB is standalone: no multi-document transactions. Every write is idempotent
 - ADRs in `docs/adr/` (template `docs/adr/template.md`, index `docs/adr/README.md`, four-digit
   numbers, never renumbered). Current: 0001 MongoDB, 0002 idempotency without transactions,
   0003 consume `orders.order-placed` for the refund customer, 0004 local JWT verification with
-  JWKS.
+  JWKS, 0005 AI order failure explanations as untrusted, advisory text.
 - Keep `README.md`, this file and the `Dockerfile` up to date with every behaviour change.
 
 ## Where things are
@@ -265,3 +276,11 @@ US-05: bearer auth on `/notifications*` → `api/auth.py` (`authenticate`, `requ
 `JwtAccessTokenVerifier`, built in `main.py` onto `app.state.access_token_verifier`) →
 `domain/access.py` (`Role`, `AccessScope`). Settings `IDENTITY_JWKS_URL`, `JWT_ISSUER`,
 `JWT_AUDIENCE`, `JWT_CLOCK_TOLERANCE_SECONDS`. Spec and design: `specs/005-jwt-auth-scoped-api/`.
+
+AI explanations: `ai.order-triage-completed` → `messaging/order_triage_completed.py`
+(`parse_order_triage_completed`: strict contract, `orderId == aggregateId`) →
+`application/record_order_failure_explanation.py` (`RecordOrderFailureExplanationService`:
+`customer_of_order` → `OrderContextNotFoundError` or `Notification.order_failure_explanation` →
+`record_and_send`) → `domain/triage.py`, `domain/messages.py::plain_text`. Setting
+`KAFKA_TOPIC_ORDER_TRIAGE_COMPLETED`. Component helper `tests/support/app.py::place_order`
+(placement, then wait for its order context). Decision: ADR 0005.
