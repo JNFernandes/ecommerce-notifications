@@ -2,6 +2,9 @@
 
 from datetime import UTC, datetime
 
+from notifications.application.record_order_failure_explanation import (
+    RecordOrderFailureExplanationService,
+)
 from notifications.application.record_order_received import RecordOrderReceivedService
 from notifications.application.record_order_status import RecordOrderStatusService
 from notifications.application.record_payment_refunded import RecordPaymentRefundedService
@@ -25,15 +28,17 @@ def _table(settings: Settings) -> tuple[str, ...]:
         RecordOrderReceivedService(order_contexts, notifications, sender, clock, ids),
         RecordOrderStatusService(notifications, sender, clock, ids),
         RecordPaymentRefundedService(order_contexts, notifications, sender, clock, ids),
+        RecordOrderFailureExplanationService(order_contexts, notifications, sender, clock, ids),
     ).topics
 
 
-def test_should_route_every_consumed_order_topic_with_the_default_names() -> None:
+def test_should_route_every_consumed_topic_with_the_default_names() -> None:
     assert _table(Settings(_env_file=None)) == (
         "orders.order-placed",
         "orders.order-confirmed",
         "orders.order-cancelled",
         "payments.payment-refunded",
+        "ai.order-triage-completed",
     )
 
 

@@ -1,6 +1,6 @@
-"""Shared validation for inbound Orders events: JSON-type guards, the envelope, and parsing.
+"""Shared validation for inbound events: JSON-type guards, the envelope, and parsing.
 
-Contract: ``ecommerce-infra/docs/events.md`` (Conventions and Orders events). Payloads are decoded
+Contract: ``ecommerce-infra/docs/events.md`` (Conventions and each event). Payloads are decoded
 with ``decode_json_object`` so amounts stay exact, then validated in Python mode. The
 ``BeforeValidator`` guards reject values of the wrong JSON type that Pydantic's lax mode would
 otherwise coerce (``true`` or ``1.0`` as ``version``, ``"129.90"`` as an amount).
@@ -23,6 +23,13 @@ def json_string(value: object) -> object:
     """Accept only a JSON string."""
     if not isinstance(value, str):
         raise ValueError("must be a JSON string")
+    return value
+
+
+def json_string_or_null(value: object) -> object:
+    """Accept only a JSON string or ``null``."""
+    if value is not None and not isinstance(value, str):
+        raise ValueError("must be a JSON string or null")
     return value
 
 

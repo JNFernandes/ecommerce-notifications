@@ -78,6 +78,7 @@ def test_should_offer_one_type_per_order_event_with_the_stored_values() -> None:
         "ORDER_CONFIRMED",
         "ORDER_CANCELLED",
         "PAYMENT_REFUNDED",
+        "ORDER_FAILURE_EXPLANATION",
     ]
 
 

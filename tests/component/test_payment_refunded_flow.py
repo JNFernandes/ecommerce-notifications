@@ -9,6 +9,7 @@ from tests.support.app import (
     RunningApp,
     assert_readable_over_http,
     component_settings,
+    place_order,
     run_app,
 )
 from tests.support.events import (
@@ -16,7 +17,6 @@ from tests.support.events import (
     ORDER_CANCELLED_TOPIC,
     ORDER_CONFIRMED_TOPIC,
     PAYMENT_REFUNDED_TOPIC,
-    order_placed_payload,
     order_status_payload,
     payment_refunded_payload,
     to_json_bytes,
@@ -26,7 +26,6 @@ from tests.support.polling import eventually
 
 pytestmark = pytest.mark.component
 
-ORDER_PLACED_TOPIC = "orders.order-placed"
 type Document = dict[str, object]
 
 
@@ -47,18 +46,6 @@ def _send_lines(caplog: pytest.LogCaptureFixture, notification_id: object) -> li
     ]
 
 
-async def _place_order(app: RunningApp, kafka_bootstrap: str) -> dict[str, object]:
-    """Produce a placement and wait until its order context exists (refunds need it)."""
-    placed = order_placed_payload()
-    await produce(kafka_bootstrap, ORDER_PLACED_TOPIC, to_json_bytes(placed))
-    await eventually(
-        lambda: app.database["order_context"].count_documents({"_id": placed["aggregateId"]}),
-        lambda count: count == 1,
-        description="the order context of the placement",
-    )
-    return placed
-
-
 async def _notifications_for(app: RunningApp, event_id: object) -> list[Document]:
     return await eventually(
         lambda: app.database["notifications"].find({"sourceEventId": event_id}).to_list(),
@@ -71,7 +58,7 @@ async def test_should_record_the_refund_for_the_customer_of_the_placed_order(
     app: RunningApp, kafka_bootstrap: str, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO, logger="notifications.send")
-    placed = await _place_order(app, kafka_bootstrap)
+    placed = await place_order(app, kafka_bootstrap)
     refund = payment_refunded_payload(orderId=placed["aggregateId"])
 
     await produce(kafka_bootstrap, PAYMENT_REFUNDED_TOPIC, to_json_bytes(refund))
@@ -142,7 +129,7 @@ async def test_should_record_one_notification_when_a_refund_is_delivered_twice(
     app: RunningApp, kafka_bootstrap: str, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO, logger="notifications.send")
-    placed = await _place_order(app, kafka_bootstrap)
+    placed = await place_order(app, kafka_bootstrap)
     refund = payment_refunded_payload(orderId=placed["aggregateId"])
     value, key = to_json_bytes(refund), str(refund["aggregateId"]).encode()
 
@@ -180,7 +167,7 @@ async def test_should_dead_letter_an_invalid_refund_and_process_the_next_one(
     fast_retry_app: RunningApp, kafka_bootstrap: str
 ) -> None:
     app, key = fast_retry_app, b"same-partition"
-    placed = await _place_order(app, kafka_bootstrap)
+    placed = await place_order(app, kafka_bootstrap)
     invalid = payment_refunded_payload(orderId=placed["aggregateId"], currency=MISSING)
     valid = payment_refunded_payload(orderId=placed["aggregateId"])
 
@@ -202,7 +189,7 @@ async def test_should_dead_letter_an_invalid_refund_and_process_the_next_one(
 async def test_should_serve_all_four_topics_for_one_order_with_one_consumer(
     app: RunningApp, kafka_bootstrap: str
 ) -> None:
-    placed = await _place_order(app, kafka_bootstrap)
+    placed = await place_order(app, kafka_bootstrap)
     order_id, customer_id = placed["aggregateId"], placed["customerId"]
     confirmed = order_status_payload(aggregateId=order_id, customerId=customer_id)
     cancelled = order_status_payload(aggregateId=order_id, customerId=customer_id)

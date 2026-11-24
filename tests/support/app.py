@@ -18,6 +18,9 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from notifications.infrastructure.settings import Settings
 from notifications.main import create_app
+from tests.support.events import order_placed_payload, to_json_bytes
+from tests.support.kafka import produce
+from tests.support.polling import eventually
 from tests.support.tokens import JwksServer, TokenIssuer
 
 type Document = dict[str, object]
@@ -99,6 +102,7 @@ async def run_app(settings: Settings, **app_options: float) -> AsyncIterator[Run
 
 
 _API_FIELDS = ("customerId", "orderId", "type", "channel", "message", "status", "sourceEventId")
+_TRIAGE_FIELDS = ("suggestedAction", "source", "confidence", "promptVersion")
 
 
 async def assert_readable_over_http(app: RunningApp, document: Document) -> None:
@@ -113,6 +117,13 @@ async def assert_readable_over_http(app: RunningApp, document: Document) -> None
     assert {field: body[field] for field in _API_FIELDS} == {
         field: document[field] for field in _API_FIELDS
     }
+    triage = document.get("triage")
+    if triage is None:
+        assert {field: body[field] for field in _TRIAGE_FIELDS} == dict.fromkeys(_TRIAGE_FIELDS)
+    else:
+        assert isinstance(triage, dict)
+        expected = {**triage, "confidence": float(str(triage["confidence"]))}
+        assert {field: body[field] for field in _TRIAGE_FIELDS} == expected
     stored_at = document["createdAt"]
     assert isinstance(stored_at, datetime)
     assert datetime.fromisoformat(body["createdAt"]) == stored_at
@@ -124,3 +135,18 @@ async def assert_stored_readable_over_http(app: RunningApp, query: Document) -> 
     assert documents, f"no stored notification matches {query}"
     for document in documents:
         await assert_readable_over_http(app, document)
+
+
+async def place_order(app: RunningApp, kafka_bootstrap: str) -> dict[str, object]:
+    """Produce an ``orders.order-placed`` event and wait until its order context exists.
+
+    Refunds and order failure explanations need that context to find the customer.
+    """
+    placed = order_placed_payload()
+    await produce(kafka_bootstrap, "orders.order-placed", to_json_bytes(placed))
+    await eventually(
+        lambda: app.database["order_context"].count_documents({"_id": placed["aggregateId"]}),
+        lambda count: count == 1,
+        description="the order context of the placement",
+    )
+    return placed

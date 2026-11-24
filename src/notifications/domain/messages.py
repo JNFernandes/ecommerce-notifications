@@ -1,12 +1,14 @@
 """Message templates. Texts are deterministic and contain ids and amounts only (Principle IV)."""
 
 import re
+import unicodedata
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from notifications.domain.errors import (
     InvalidAmountError,
     InvalidCurrencyError,
+    InvalidExplanationError,
     InvalidOrderTotalError,
 )
 
@@ -17,6 +19,14 @@ _CURRENCY_CODE = re.compile(r"[A-Z]{3}")
 
 MAX_REASON_LENGTH = 500
 """Longest cancellation reason shown in a message; longer reasons are cut and end with ``…``."""
+
+MAX_EXPLANATION_LENGTH = 500
+"""Longest order failure explanation shown, ``…`` included."""
+
+_ELLIPSIS = "…"
+_WHITESPACE_RUN = re.compile(r"\s+")
+_CONTROL_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
+"""Control and format characters, lone surrogates, and line/paragraph separators."""
 
 
 def require_valid_amount(amount: Decimal) -> Decimal:
@@ -111,3 +121,39 @@ def payment_refunded_message(order_id: UUID, amount: Decimal, currency: str) -> 
     """
     shown = f"{format_amount(amount)} {require_currency_code(currency)}"
     return f"Your payment of {shown} for order {order_id} was refunded."
+
+
+def plain_text(raw: str, max_length: int) -> str:
+    """Clean untrusted text into one line of plain text of at most ``max_length`` characters.
+
+    Rules, in order: control and format characters (Unicode categories ``Cc``, ``Cf``, ``Cs``,
+    ``Zl``, ``Zp``) are removed, except whitespace ones (tabs, line breaks, separators), which
+    become a space; each run of whitespace becomes one space; surrounding whitespace is trimmed;
+    text longer than ``max_length`` is cut and ends with ``…`` (the result keeps ``max_length``
+    characters). The text is never interpreted: markup stays literal characters.
+    """
+    kept = (
+        (" " if char.isspace() else "")
+        if unicodedata.category(char) in _CONTROL_CATEGORIES
+        else char
+        for char in raw
+    )
+    text = _WHITESPACE_RUN.sub(" ", "".join(kept)).strip()
+    if len(text) > max_length:
+        return text[: max_length - 1].rstrip() + _ELLIPSIS
+    return text
+
+
+def order_failure_explanation_message(explanation: str) -> str:
+    """Text of the ``ORDER_FAILURE_EXPLANATION`` notification: the cleaned explanation itself.
+
+    The explanation comes from the AI triage and is untrusted: see ``plain_text``, with at most
+    ``MAX_EXPLANATION_LENGTH`` characters.
+
+    Raises:
+        InvalidExplanationError: if nothing is left once the explanation is cleaned.
+    """
+    shown = plain_text(explanation, MAX_EXPLANATION_LENGTH)
+    if not shown:
+        raise InvalidExplanationError("explanation is empty once cleaned")
+    return shown

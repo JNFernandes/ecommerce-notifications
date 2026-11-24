@@ -19,3 +19,11 @@ class InvalidCurrencyError(DomainError):
 
 class NaiveTimestampError(DomainError):
     """A timestamp has no timezone; the domain only accepts timezone-aware UTC times."""
+
+
+class InvalidExplanationError(DomainError):
+    """An order failure explanation has no text left once cleaned."""
+
+
+class InvalidTriageResultError(DomainError):
+    """A triage result has a confidence outside 0 to 1 or an empty prompt version."""

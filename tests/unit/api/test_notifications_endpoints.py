@@ -17,6 +17,7 @@ from notifications.application.query_notifications import (
 )
 from notifications.domain.access import AccessScope, Role
 from notifications.domain.notification import Notification, NotificationType
+from notifications.domain.triage import SuggestedAction, TriageDetails, TriageSource
 from tests.support.fakes import FakeAccessTokenVerifier, FakeNotificationReader
 
 START = datetime(2026, 11, 16, 10, 0, 0, 123_000, tzinfo=UTC)
@@ -89,7 +90,54 @@ async def test_should_list_notifications_newest_first_in_the_documented_shape(
         "status": "SENT",
         "createdAt": "2026-11-16T10:02:00.123000Z",
         "sourceEventId": str(newest.source_event_id),
+        "suggestedAction": None,
+        "source": None,
+        "confidence": None,
+        "promptVersion": None,
     }
+
+
+def _explanation(customer: UUID = CUSTOMER) -> Notification:
+    return Notification.order_failure_explanation(
+        notification_id=uuid4(),
+        customer_id=customer,
+        order_id=uuid4(),
+        explanation="<b>Stock</b>\x00 for SKU-002\r\nwas short.",
+        triage=TriageDetails.of(
+            suggested_action=SuggestedAction.RESTOCK,
+            source=TriageSource.LLM,
+            confidence=Decimal("0.92"),
+            prompt_version="triage.v1",
+        ),
+        source_event_id=uuid4(),
+        now=START,
+    )
+
+
+async def test_should_return_the_triage_fields_of_an_order_failure_explanation_as_plain_json() -> (
+    None
+):
+    explanation = _explanation()
+    async with await _client(FakeNotificationReader([explanation])) as http:
+        response = await http.get(f"/notifications/{explanation.id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
+    body = response.json()
+    assert body["type"] == "ORDER_FAILURE_EXPLANATION"
+    assert body["message"] == "<b>Stock</b> for SKU-002 was short."
+    assert (body["suggestedAction"], body["source"]) == ("RESTOCK", "LLM")
+    assert (body["confidence"], body["promptVersion"]) == (0.92, "triage.v1")
+
+
+async def test_should_hide_another_customers_order_failure_explanation() -> None:
+    foreign = _explanation(customer=OTHER_CUSTOMER)
+    async with await _client(FakeNotificationReader([foreign]), caller="customer") as http:
+        by_id = await http.get(f"/notifications/{foreign.id}")
+        listed = await http.get("/notifications", params={"type": "ORDER_FAILURE_EXPLANATION"})
+
+    assert by_id.status_code == 404
+    assert listed.json()["items"] == []
 
 
 async def test_should_pass_the_filters_and_paging_to_the_service(

@@ -14,6 +14,9 @@ from fastapi import FastAPI
 from notifications.api.app import build_api
 from notifications.application.health import HealthService
 from notifications.application.query_notifications import NotificationQueryService
+from notifications.application.record_order_failure_explanation import (
+    RecordOrderFailureExplanationService,
+)
 from notifications.application.record_order_received import RecordOrderReceivedService
 from notifications.application.record_order_status import RecordOrderStatusService
 from notifications.application.record_payment_refunded import RecordPaymentRefundedService
@@ -30,6 +33,7 @@ from notifications.infrastructure.system import SystemClock, Uuid4Generator
 from notifications.messaging.consumer_manager import KafkaConsumerManager
 from notifications.messaging.order_placed import parse_order_placed
 from notifications.messaging.order_status import parse_order_cancelled, parse_order_confirmed
+from notifications.messaging.order_triage_completed import parse_order_triage_completed
 from notifications.messaging.payment_refunded import parse_payment_refunded
 from notifications.messaging.processor import RetryingMessageProcessor
 from notifications.messaging.retry import RetryPolicy, StopAwareSleeper
@@ -54,6 +58,7 @@ def build_routing_table(
     record_order_received: RecordOrderReceivedService,
     record_order_status: RecordOrderStatusService,
     record_payment_refunded: RecordPaymentRefundedService,
+    record_order_failure_explanation: RecordOrderFailureExplanationService,
 ) -> RoutingTable:
     """Register one route per consumed topic: topic -> parser -> one service method."""
     return RoutingTable(
@@ -77,6 +82,11 @@ def build_routing_table(
                 settings.kafka_topic_payment_refunded,
                 parse_payment_refunded,
                 record_payment_refunded.handle,
+            ),
+            Route(
+                settings.kafka_topic_order_triage_completed,
+                parse_order_triage_completed,
+                record_order_failure_explanation.handle,
             ),
         ]
     )
@@ -118,6 +128,9 @@ def create_app(
             order_contexts, notifications, sender, clock, ids
         )
         record_order_status = RecordOrderStatusService(notifications, sender, clock, ids)
+        record_order_failure_explanation = RecordOrderFailureExplanationService(
+            order_contexts, notifications, sender, clock, ids
+        )
         jwks_client = httpx.AsyncClient(timeout=JWKS_TIMEOUT_SECONDS)
         verifier = JwtAccessTokenVerifier(
             JwksKeyStore(
@@ -132,7 +145,11 @@ def create_app(
             resolved.kafka_bootstrap_servers,
             resolved.kafka_group_id,
             routing=build_routing_table(
-                resolved, record_order_received, record_order_status, record_payment_refunded
+                resolved,
+                record_order_received,
+                record_order_status,
+                record_payment_refunded,
+                record_order_failure_explanation,
             ),
             processor=RetryingMessageProcessor(
                 RetryPolicy(
