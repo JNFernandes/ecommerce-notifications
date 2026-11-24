@@ -10,10 +10,12 @@ from uuid import UUID
 from notifications.domain.messages import (
     order_cancelled_message,
     order_confirmed_message,
+    order_failure_explanation_message,
     order_received_message,
     payment_refunded_message,
 )
 from notifications.domain.time import require_utc_millis
+from notifications.domain.triage import TriageDetails
 
 
 class NotificationType(StrEnum):
@@ -27,6 +29,8 @@ class NotificationType(StrEnum):
     """From ``orders.order-cancelled`` (US-02)."""
     PAYMENT_REFUNDED = "PAYMENT_REFUNDED"
     """From ``payments.payment-refunded`` (US-03)."""
+    ORDER_FAILURE_EXPLANATION = "ORDER_FAILURE_EXPLANATION"
+    """From ``ai.order-triage-completed``: why the order failed, advisory (ADR 0005)."""
 
 
 class NotificationChannel(StrEnum):
@@ -57,6 +61,8 @@ class Notification:
     message: str
     created_at: datetime
     source_event_id: UUID
+    triage: TriageDetails | None = None
+    """The AI triage details; only on ``ORDER_FAILURE_EXPLANATION`` notifications."""
 
     @classmethod
     def order_received(
@@ -166,6 +172,38 @@ class Notification:
         )
 
     @classmethod
+    def order_failure_explanation(
+        cls,
+        *,
+        notification_id: UUID,
+        customer_id: UUID,
+        order_id: UUID,
+        explanation: str,
+        triage: TriageDetails,
+        source_event_id: UUID,
+        now: datetime,
+    ) -> Self:
+        """Build the ``ORDER_FAILURE_EXPLANATION`` notification from an AI triage result.
+
+        The message is the explanation, cleaned as untrusted plain text. The notification is
+        advisory: it is stored and shown, and nothing acts on ``triage.suggested_action``.
+
+        Raises:
+            InvalidExplanationError: if nothing is left of the explanation once cleaned.
+            NaiveTimestampError: if ``now`` has no timezone.
+        """
+        return cls._create(
+            notification_id=notification_id,
+            customer_id=customer_id,
+            order_id=order_id,
+            notification_type=NotificationType.ORDER_FAILURE_EXPLANATION,
+            message=order_failure_explanation_message(explanation),
+            source_event_id=source_event_id,
+            now=now,
+            triage=triage,
+        )
+
+    @classmethod
     def _create(
         cls,
         *,
@@ -176,6 +214,7 @@ class Notification:
         message: str,
         source_event_id: UUID,
         now: datetime,
+        triage: TriageDetails | None = None,
     ) -> Self:
         """Apply the rules shared by every notification: email channel, ``SENT``, UTC millis."""
         return cls(
@@ -188,4 +227,5 @@ class Notification:
             message=message,
             created_at=require_utc_millis(now),
             source_event_id=source_event_id,
+            triage=triage,
         )

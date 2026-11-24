@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import cast
 from uuid import UUID
 
+from bson.decimal128 import Decimal128
 from pymongo import DESCENDING
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import DuplicateKeyError
@@ -16,6 +17,7 @@ from notifications.domain.notification import (
     NotificationStatus,
     NotificationType,
 )
+from notifications.domain.triage import SuggestedAction, TriageDetails, TriageSource
 from notifications.infrastructure.indexes import (
     NOTIFICATIONS_COLLECTION,
     NOTIFICATIONS_SOURCE_EVENT_INDEX,
@@ -25,8 +27,8 @@ from notifications.infrastructure.mongo import MongoDocument
 
 
 def to_document(notification: Notification) -> MongoDocument:
-    """Map a notification to its MongoDB document."""
-    return {
+    """Map a notification to its MongoDB document (``triage`` only when the notification has it)."""
+    document: MongoDocument = {
         "_id": str(notification.id),
         "customerId": str(notification.customer_id),
         "orderId": str(notification.order_id),
@@ -37,6 +39,31 @@ def to_document(notification: Notification) -> MongoDocument:
         "createdAt": notification.created_at,
         "sourceEventId": str(notification.source_event_id),
     }
+    if notification.triage is not None:
+        document["triage"] = _triage_to_document(notification.triage)
+    return document
+
+
+def _triage_to_document(triage: TriageDetails) -> MongoDocument:
+    """Map the triage details to a sub-document (confidence as ``Decimal128``)."""
+    return {
+        "suggestedAction": triage.suggested_action.value,
+        "source": triage.source.value,
+        "confidence": Decimal128(str(triage.confidence)),
+        "promptVersion": triage.prompt_version,
+    }
+
+
+def _triage_from_document(document: MongoDocument | None) -> TriageDetails | None:
+    """Map the triage sub-document back, or ``None`` when the notification has none."""
+    if document is None:
+        return None
+    return TriageDetails(
+        suggested_action=SuggestedAction(cast(str, document["suggestedAction"])),
+        source=TriageSource(cast(str, document["source"])),
+        confidence=cast(Decimal128, document["confidence"]).to_decimal(),
+        prompt_version=cast(str, document["promptVersion"]),
+    )
 
 
 def from_document(document: MongoDocument) -> Notification:
@@ -51,6 +78,7 @@ def from_document(document: MongoDocument) -> Notification:
         message=cast(str, document["message"]),
         created_at=cast(datetime, document["createdAt"]),
         source_event_id=UUID(cast(str, document["sourceEventId"])),
+        triage=_triage_from_document(cast("MongoDocument | None", document.get("triage"))),
     )
 
 

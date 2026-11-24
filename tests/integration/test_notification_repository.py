@@ -6,10 +6,12 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from bson.decimal128 import Decimal128
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.errors import DuplicateKeyError
 
 from notifications.domain.notification import Notification
+from notifications.domain.triage import SuggestedAction, TriageDetails, TriageSource
 from notifications.infrastructure.indexes import ensure_indexes
 from notifications.infrastructure.repositories.notifications import (
     MongoNotificationRepository,
@@ -180,3 +182,65 @@ async def test_should_read_back_an_equal_refund_notification(
     assert document is not None
     assert document["type"] == "PAYMENT_REFUNDED"
     assert from_document(document) == notification
+
+
+def _explanation_notification(source_event_id: UUID) -> Notification:
+    return Notification.order_failure_explanation(
+        notification_id=uuid4(),
+        customer_id=uuid4(),
+        order_id=uuid4(),
+        explanation="Stock for product SKU-002 was short by 3 units.",
+        triage=TriageDetails.of(
+            suggested_action=SuggestedAction.RESTOCK,
+            source=TriageSource.LLM,
+            confidence=Decimal("0.92"),
+            prompt_version="triage.v1",
+        ),
+        source_event_id=source_event_id,
+        now=datetime(2026, 11, 24, 10, 5, tzinfo=UTC),
+    )
+
+
+async def test_should_store_the_triage_details_of_an_order_failure_explanation(
+    database: AsyncDatabase[Document],
+) -> None:
+    notification = _explanation_notification(uuid4())
+    await MongoNotificationRepository(database).add(notification)
+
+    document = await database["notifications"].find_one({"_id": str(notification.id)})
+
+    assert document is not None
+    assert document["type"] == "ORDER_FAILURE_EXPLANATION"
+    assert document["triage"] == {
+        "suggestedAction": "RESTOCK",
+        "source": "LLM",
+        "confidence": Decimal128("0.92"),
+        "promptVersion": "triage.v1",
+    }
+    assert from_document(document) == notification
+
+
+async def test_should_keep_one_explanation_when_its_event_is_redelivered(
+    database: AsyncDatabase[Document],
+) -> None:
+    await ensure_indexes(database)
+    repository = MongoNotificationRepository(database)
+    event_id = uuid4()
+
+    first = await repository.add(_explanation_notification(event_id))
+    again = await repository.add(_explanation_notification(event_id))
+
+    assert (first, again) == (True, False)
+    assert await database["notifications"].count_documents({"sourceEventId": str(event_id)}) == 1
+
+
+async def test_should_store_no_triage_field_for_other_notifications(
+    database: AsyncDatabase[Document],
+) -> None:
+    notification = _refund_notification(uuid4())
+    await MongoNotificationRepository(database).add(notification)
+
+    document = await database["notifications"].find_one({"_id": str(notification.id)})
+
+    assert document is not None
+    assert "triage" not in document

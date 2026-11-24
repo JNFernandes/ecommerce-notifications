@@ -71,6 +71,7 @@ CONSUMED_TOPICS = [
     "orders.order-confirmed",
     "orders.order-cancelled",
     "payments.payment-refunded",
+    "ai.order-triage-completed",
 ]
 """Every topic the consumer subscribes to with default settings, like ``kafka-init`` creates."""
 

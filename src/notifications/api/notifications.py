@@ -25,6 +25,7 @@ from notifications.domain.notification import (
     NotificationStatus,
     NotificationType,
 )
+from notifications.domain.triage import SuggestedAction, TriageSource
 
 
 class NotificationResponse(BaseModel):
@@ -37,7 +38,14 @@ class NotificationResponse(BaseModel):
     order_id: UUID = Field(alias="orderId", description="Order the notification is about.")
     type: NotificationType = Field(description="What happened to the order or its payment.")
     channel: NotificationChannel = Field(description="Delivery channel (sending is simulated).")
-    message: str = Field(description="Text shown to the customer.")
+    message: str = Field(
+        description=(
+            "Text shown to the customer. Always plain text on one line, never HTML: render it as "
+            "text (escape it), never as markup. For `ORDER_FAILURE_EXPLANATION` it is the AI "
+            "explanation of why the order failed, cleaned (control characters removed, trimmed, "
+            "at most 500 characters ending with `…` when cut); it is advisory information only."
+        )
+    )
     status: NotificationStatus = Field(description="Delivery status.")
     created_at: datetime = Field(
         alias="createdAt", description="When the notification was recorded (ISO 8601, UTC)."
@@ -45,10 +53,40 @@ class NotificationResponse(BaseModel):
     source_event_id: UUID = Field(
         alias="sourceEventId", description="Id of the event that produced the notification."
     )
+    suggested_action: SuggestedAction | None = Field(
+        default=None,
+        alias="suggestedAction",
+        description=(
+            "`ORDER_FAILURE_EXPLANATION` only (otherwise `null`): what the AI triage suggests a "
+            "person does. Advice only; nothing is ever done automatically because of it."
+        ),
+    )
+    source: TriageSource | None = Field(
+        default=None,
+        description=(
+            "`ORDER_FAILURE_EXPLANATION` only (otherwise `null`): `LLM` when a language model "
+            "wrote the explanation, `FALLBACK_TEMPLATE` when a fixed template did."
+        ),
+    )
+    confidence: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="`ORDER_FAILURE_EXPLANATION` only (otherwise `null`): from 0 to 1.",
+    )
+    prompt_version: str | None = Field(
+        default=None,
+        alias="promptVersion",
+        description=(
+            "`ORDER_FAILURE_EXPLANATION` only (otherwise `null`): version of the prompt that "
+            "produced the explanation, plain text."
+        ),
+    )
 
     @classmethod
     def from_domain(cls, notification: Notification) -> Self:
         """Map a domain notification to its response representation."""
+        triage = notification.triage
         return cls(
             id=notification.id,
             customer_id=notification.customer_id,
@@ -59,6 +97,10 @@ class NotificationResponse(BaseModel):
             status=notification.status,
             created_at=notification.created_at,
             source_event_id=notification.source_event_id,
+            suggested_action=None if triage is None else triage.suggested_action,
+            source=None if triage is None else triage.source,
+            confidence=None if triage is None else float(triage.confidence),
+            prompt_version=None if triage is None else triage.prompt_version,
         )
 
 

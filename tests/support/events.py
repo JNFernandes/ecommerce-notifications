@@ -104,3 +104,38 @@ def payment_refunded_payload(**overrides: object) -> dict[str, object]:
         else:
             payload[key] = value
     return payload
+
+
+ORDER_TRIAGE_COMPLETED_TOPIC = "ai.order-triage-completed"
+
+
+def order_triage_payload(**overrides: object) -> dict[str, object]:
+    """Return a valid ``ai.order-triage-completed`` JSON object, as ecommerce-ai publishes it.
+
+    ``aggregateId`` and ``orderId`` are the same order id; pass ``order_id=...`` to set both.
+    ``MISSING`` removes a key.
+    """
+    order_id = str(overrides.pop("order_id", uuid4()))
+    payload: dict[str, object] = {
+        "eventId": str(uuid4()),
+        "aggregateId": order_id,
+        "occurredAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "version": 1,
+        "orderId": order_id,
+        "cause": "INSUFFICIENT_STOCK",
+        "explanation": (
+            "Stock for product SKU-002 was short by 3 units, so nothing was reserved and the "
+            "order was cancelled."
+        ),
+        "suggestedAction": "RESTOCK",
+        "confidence": Decimal("0.92"),
+        "promptVersion": "triage.v1",
+        "modelId": "claude-haiku-5-5",
+        "source": "LLM",
+    }
+    for key, value in overrides.items():
+        if value is MISSING:
+            payload.pop(key, None)
+        else:
+            payload[key] = value
+    return payload

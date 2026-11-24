@@ -48,6 +48,7 @@ def test_should_use_local_infrastructure_defaults_when_no_environment_is_set(
     assert settings.kafka_topic_order_confirmed == "orders.order-confirmed"
     assert settings.kafka_topic_order_cancelled == "orders.order-cancelled"
     assert settings.kafka_topic_payment_refunded == "payments.payment-refunded"
+    assert settings.kafka_topic_order_triage_completed == "ai.order-triage-completed"
     assert settings.identity_jwks_url == "http://localhost:3001/.well-known/jwks.json"
     assert settings.jwt_issuer == "http://localhost:3001"
     assert settings.jwt_audience == "ecommerce"
@@ -150,6 +151,25 @@ def test_should_reject_a_refund_topic_equal_to_an_order_topic(
         Settings(_env_file=None)
 
     assert "kafka_topic_payment_refunded" in str(raised.value)
+
+
+def test_should_read_the_triage_topic_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KAFKA_TOPIC_ORDER_TRIAGE_COMPLETED", "test.order-triage-completed")
+
+    assert (
+        Settings(_env_file=None).kafka_topic_order_triage_completed == "test.order-triage-completed"
+    )
+
+
+def test_should_reject_a_triage_topic_equal_to_another_consumed_topic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KAFKA_TOPIC_ORDER_TRIAGE_COMPLETED", "orders.order-placed")
+
+    with pytest.raises(ValueError, match="consumed topics must be distinct") as raised:
+        Settings(_env_file=None)
+
+    assert "kafka_topic_order_triage_completed" in str(raised.value)
 
 
 def test_should_read_the_token_settings_from_the_environment(

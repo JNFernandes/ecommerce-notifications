@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
-from notifications.application.errors import OrderContextNotFoundError
+from notifications.application.order_customer import customer_of_order
 from notifications.application.ports import (
     Clock,
     IdGenerator,
@@ -59,12 +59,10 @@ class RecordPaymentRefundedService:
                 (retryable: the consumer retries, then dead-letters the message).
             Exception: any repository failure, unchanged, so that the consumer can retry.
         """
-        context = await self._order_contexts.get(command.order_id)
-        if context is None:
-            raise OrderContextNotFoundError(command.order_id)
+        customer_id = await customer_of_order(self._order_contexts, command.order_id)
         notification = Notification.payment_refunded(
             notification_id=self._ids.new_id(),
-            customer_id=context.customer_id,
+            customer_id=customer_id,
             order_id=command.order_id,
             amount=command.amount,
             currency=command.currency,

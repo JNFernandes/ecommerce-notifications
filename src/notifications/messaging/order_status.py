@@ -12,15 +12,8 @@ from notifications.application.record_order_status import (
     OrderCancelledCommand,
     OrderConfirmedCommand,
 )
-from notifications.messaging.events import OrderEventEnvelope, parse_event
+from notifications.messaging.events import OrderEventEnvelope, json_string_or_null, parse_event
 from notifications.messaging.messages import ConsumedMessage
-
-
-def _json_string_or_null(value: object) -> object:
-    """Accept only a JSON string or ``null`` (clarification Q2: any other type is invalid)."""
-    if value is not None and not isinstance(value, str):
-        raise ValueError("must be a JSON string or null")
-    return value
 
 
 class OrderConfirmedEvent(OrderEventEnvelope):
@@ -37,7 +30,7 @@ class OrderConfirmedEvent(OrderEventEnvelope):
 class OrderCancelledEvent(OrderEventEnvelope):
     """An ``orders.order-cancelled`` event: Orders cancelled a pending order."""
 
-    reason: Annotated[str | None, BeforeValidator(_json_string_or_null)] = None
+    reason: Annotated[str | None, BeforeValidator(json_string_or_null)] = None
     """Why the order was cancelled, when it came from an outcome (``payment failed: …`` or
     ``stock rejected: …``); absent for a cancellation requested through the Orders API."""
 
